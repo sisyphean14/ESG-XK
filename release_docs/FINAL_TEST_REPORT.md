@@ -8,7 +8,7 @@ test_rotation_retry_selection_unit（单元测试，仅验证旋转重试的选�
 
 ## 1. 自动化测试（最终回归，基于最终代码）
 命令：`pytest -q -s --junitxml=reports/junit_v1.1.0_final.xml`
-结果：**103 个测试，103 PASS，0 FAIL，0 ERROR，0 SKIP**，耗时 1920 s。
+结果：**122 个测试，122 PASS，0 FAIL，0 ERROR，0 SKIP**，耗时 1877 s。
 
 | 模块 | 数量 | 结果 | 说明 |
 |---|---:|---|---|
@@ -19,12 +19,13 @@ test_rotation_retry_selection_unit（单元测试，仅验证旋转重试的选�
 | test_run_control | 8 | PASS | V1.0.0 回归 7 项；“Worker 崩溃”按 V1.1 语义改为 Watchdog 自动续跑，另新增兜底路径测试 1 项 |
 | test_backup_resource_ui | 9 | PASS | V1.0.0 回归 |
 | test_v11_office_ocr | 21 | PASS | 新增：Office 内嵌图片 OCR 全链路 |
-| test_v11_reliability | 11 | PASS | 新增：超时 / Watchdog / 自动跳过 |
+| test_v11_reliability | 12 | PASS | 新增：超时 / Watchdog / 自动跳过（含导入哈希卡死） |
 | test_v11_migration_backup | 4 | PASS | 新增：真实 V1 数据目录升级、回滚、旧备份恢复、V1.1 备份恢复 |
+| test_v11_models_portable | 18 | PASS | 新增：模型清单、下载器（本机 HTTP 实测）、镜像测速、扫描电脑、便携模式、数据目录迁移、界面 |
 | test_zz_source_integrity | 2 | PASS | V1 基线 39 个 + V1.1 基线 20 个源文件 size / mtime / SHA-256 零变化 |
 
-新增测试 38 项；V1.0.0 的 65 项测试全部重新执行（其中 2 项因 V1.1 需求带来的行为变化更新了断言，
-旧行为的兜底路径由新增测试覆盖）；合计 103 项。
+新增测试 57 项；V1.0.0 的 65 项测试全部重新执行（其中 2 项因 V1.1 需求带来的行为变化更新了断言，
+旧行为的兜底路径由新增测试覆盖）；合计 122 项。
 
 ## 2. Office 内嵌图片 OCR 证据
 - DOCX 主测试文档：19 个图片出现位置（内嵌 / 浮动 anchor / VML / 表格单元格 / JPEG / BMP / TIFF）；
@@ -46,6 +47,28 @@ test_rotation_retry_selection_unit（单元测试，仅验证旋转重试的选�
 - 子处理：“重新OCR内嵌图片”仅新增 3 条 OCR 结果、未重新解析正文。
 - 安全停止：24 张图片的 PPTX 在第 6 张后安全停止（Checkpoint unit_no=6），继续后从第 7 张开始，最终 ocr_results = 24（无重复 OCR）。
 - 急停：Office 图片 OCR 中急停 372 ms，临时图片清理，无半写入，重新打开后续跑至 24/24。
+
+## 2A. 模型下载中心 / 扫描电脑 / 便携模式（真实验证）
+**真实下载安装**（模拟没有任何 AI 环境的新电脑：空目录 D:\ESG-XK\ceshi\work\download_test）：
+| 组件 | 来源 | 结果 |
+|---|---|---|
+| OCR 模型 PP-OCRv5 mobile det / rec + textline_ori（12 个文件） | ModelScope | 全部 SHA-256 一致，安装完成 |
+| llama.cpp b11228 CPU | GitHub | SHA-256 一致，`llama-server --version` 验证通过 |
+| Qwen3-Embedding-0.6B-Q8_0（639 MB） | ModelScope | SHA-256 一致；用下载的 llama-server CPU 实际嵌入：维度 1024，zh-en 相似度 0.834，zh-id 0.768 |
+| PP-OCR 运行时 | npmmirror（Python 3.12.10 embed）、清华（pip wheel）、PyPI 镜像（paddlepaddle 3.3.1、paddleocr 3.7.0 及依赖） | 安装完成；用下载的运行时 + 下载的 PP-OCRv5 模型真实 OCR：“下载的PP-OCR运行时：职业健康安全 / Downloaded runtime works 2025 / Pengelolaan limbah B3 sesuai aturan”，置信度 0.992；pip 缓存与临时目录清理干净 |
+
+下载器（本机 127.0.0.1 HTTP 服务器实测）：正常下载 + 校验；断点续传（验证 Range 起点 = 已下载字节）；来源不支持 Range 时从头下载；
+SHA-256 不一致丢弃并换源；全部来源不一致则失败且不留文件；取消后保留 .part；数据停滞 2 秒无进展超时；单项失败不影响其他项；
+安装清单 ESGXK-MODELS.json；本地文件安装仅在 SHA-256 匹配时进行；Zip Slip 拒绝；磁盘空间不足拒绝；PyPI 镜像按实测速度排序。
+
+**扫描电脑**：真实全盘只读扫描 C: + D:（361,181 个文件夹，194 s），找到本机已有 llama-server（CPU / CUDA）、Qwen3 Embedding、
+Qwen3 Reranker、Qwen3-VL LLM、PP-OCRv6 模型目录、多个 PP-OCR 运行时以及本次下载的资产；扫描前后文件 mtime / size 不变（自动化测试）；
+扫描可取消。
+
+**便携模式**：冻结 EXE 首次运行默认选择“程序文件夹内”：生成 portable.flag、profile\default.json（data_root 保存为相对路径
+“ESG-XK-Data”）；程序文件夹整体移动后路径仍然解析正确（自动化测试）；普通启动（无参数）通过 portable.flag 自动找到配置。
+数据目录迁移：EXE 内 24 个文件逐个 SHA-256 一致、integrity ok、文档 36 / 36、源目录保留；取消时清理目标并回到原目录；
+目标非空 / 目标位于源目录内均被拒绝。
 
 ## 3. 可靠性证据（真实故障）
 | 场景 | 结果 |
@@ -78,13 +101,15 @@ test_rotation_retry_selection_unit（单元测试，仅验证旋转重试的选�
 
 ## 6. EXE 真实验收（最终构建）
 EXE：`D:\ESG-XK\jiaofu\ESG-XK-1.1.0-portable\ESG-XK.exe`
-SHA-256：950ae6f2123c3e4b317b31fa1945bcd610ea8603978e6502c10b8e08940ac232
-- `--acceptance`（冻结 EXE 内驱动真实界面，首次运行由 EXE 自身创建数据目录）：**28 步 28 PASS / 0 FAIL**，
+SHA-256：e83bbc6f93e7c961babb1fdf6ffef1ad911225bb43f06333b670b2274b2331e6
+- `--acceptance`（冻结 EXE 内驱动真实界面）：**33 步 33 PASS / 0 FAIL**，449 s。首次运行由 EXE 自身处理（默认“程序文件夹内”）；
   含 DOCX / PPTX / XLSX 内嵌图片 OCR（DOCX 16/21、PPTX 7/8、XLSX 3/4 OCR 成功，其余为按规则过滤的非知识图片）、
-  FTS 命中内嵌图片、向量命中内嵌图片、RAG 引用内嵌图片位置、暂停 / 继续 / 安全停止 / Checkpoint 续跑 / 急停（269 ms）、
-  解析卡死与 OCR 卡死在冻结 EXE 中超时跳过（COMPLETED_WITH_ERRORS）、备份 / 恢复、文档详情内嵌图片页签、日志、AI资产中心。
+  FTS / 向量命中内嵌图片、RAG 引用内嵌图片位置、暂停 / 继续 / 安全停止 / Checkpoint 续跑 / 急停（123 ms）、
+  解析卡死与 OCR 卡死超时跳过（COMPLETED_WITH_ERRORS）、备份 / 恢复、文档详情内嵌图片页签、日志、AI资产中心、
+  扫描电脑、模型下载中心（硬件推荐 + 真实下载安装 llama.cpp CPU）、数据目录迁移（SHA-256 24/24）。
   退出码 0；退出后残留子进程 0（按 create_time 校验）；last_shutdown：Worker 0 / Helper 0 / 端口 0 / 处理租约释放 / 数据目录租约释放。
-- 普通启动（无参数）：3.0 s 出窗「ESG-XK 本地ESG文档知识库 V1.1.0」，空闲无子进程；窗口关闭消息后退出码 0，退出核对全部为 0。
+- 普通启动（无参数，便携模式）：3.0 s 出窗「ESG-XK 本地ESG文档知识库 V1.1.0」，读取迁移后的数据目录，空闲无子进程；
+  窗口关闭消息后退出码 0，退出核对全部为 0。
 
 ## 7. 数据库与源文件
 - 所有完整性校验以新连接执行：PRAGMA integrity_check = ok；foreign_key_check 无错误。
@@ -99,5 +124,10 @@ SHA-256：950ae6f2123c3e4b317b31fa1945bcd610ea8603978e6502c10b8e08940ac232
 | P2 | 恢复备份时 Watchdog 线程持有数据库连接导致无法替换数据库文件 | 恢复前停止并等待 Watchdog |
 | P3 | 启动恢复后中断 Run 保留过期阶段信息 | 恢复时清除 current_stage / progress_label |
 | P3 | OCR 全部超时时阶段事件错误码显示 OCR_FAILED | 按失败性质记录 OCR_TIMEOUT / RESOURCE_WAIT_TIMEOUT / OCR_FAILED |
+
+| P1 | 真实下载测试发现：嵌入式 Python 中用 “wheel\pip” 路径安装 pip 被 pip 拒绝（Windows 保护），PP-OCR 运行时安装失败 | 改为 runpy 启动 pip；空目录真实重装通过 |
+| P2 | 真实网络下清华镜像 paddle 包仅约 19 KB/s，安装可能极慢 | 新增阿里云镜像；安装前按实测速度排序镜像；pip --retries 10 |
+| P3 | pip 临时下载文件写入 C 盘 TEMP，且不计入“无进展”判断 | TMP / TEMP 指向安装目录内 .pip-tmp，完成后删除 |
+| P3 | 自动化测试隔离问题：页面模块按名称导入 hardware，单独补丁无效（仅影响测试） | 同时补丁页面模块；按全量顺序复测通过 |
 
 当前未关闭缺陷：P0 = 0，P1 = 0，P2 = 0；P3 见验收报告“尚存限制”。

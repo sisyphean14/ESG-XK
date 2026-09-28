@@ -38,7 +38,15 @@ def windows_of(pid):
 
 
 env = dict(os.environ)
-env["ESGXK_PROFILE_DIR"] = str(BASE / "profile")
+env.pop("ESGXK_PROFILE_DIR", None)
+if (BASE / "app" / "portable.flag").exists():
+    # V1.1.0 便携模式：不指定 Profile 目录，由 EXE 通过 portable.flag 自行找到 <程序文件夹>\profile
+    env["ESGXK_PORTABLE_BASE"] = str(BASE / "app")
+    prof = json.loads((BASE / "app" / "profile" / "default.json").read_text(encoding="utf-8"))
+    dr = Path(prof["data_root"]) if os.path.isabs(prof["data_root"]) else BASE / "app" / prof["data_root"]
+else:
+    env["ESGXK_PROFILE_DIR"] = str(BASE / "profile")
+    dr = BASE / "ESG-XK-Data"
 t0 = time.time()
 proc = subprocess.Popen([str(EXE)], env=env)
 win = None
@@ -66,7 +74,8 @@ except subprocess.TimeoutExpired:
     proc.kill()
 result["exit_code"] = rc
 result["still_running"] = psutil.pid_exists(proc.pid)
-ls = BASE / "ESG-XK-Data" / "runs" / "last_shutdown.json"
+ls = dr / "runs" / "last_shutdown.json"
+result["data_root"] = str(dr)
 result["last_shutdown"] = json.loads(ls.read_text(encoding="utf-8")) if ls.exists() else None
 (BASE / "plain_launch_result.json").write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
 print(json.dumps(result, ensure_ascii=False, indent=1))

@@ -427,7 +427,10 @@ def test_relocate_cancel_cleans_target_and_reopens_source(portable_env, tmp_path
 def test_models_page_and_scan_dialog_ui(ctx_noai, qtbot, tmp_path, monkeypatch):
     ctx = ctx_noai
     from esgxk.ui.main_window import MainWindow
-    monkeypatch.setattr(dl, "hardware", lambda: {"ram_gb": 16.0, "nvidia": False, "gpu": ""})
+    import esgxk.ui.pages.models_page as mp_mod
+    fake_hw = lambda: {"ram_gb": 16.0, "nvidia": False, "gpu": ""}  # noqa: E731
+    monkeypatch.setattr(dl, "hardware", fake_hw)
+    monkeypatch.setattr(mp_mod, "hardware", fake_hw)        # 页面模块按名称导入
     win = MainWindow(ctx)
     qtbot.addWidget(win)
     page = win.goto("models")
