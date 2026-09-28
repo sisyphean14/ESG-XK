@@ -68,7 +68,8 @@ summary = {"exit_code": rc, "seconds": round(time.time() - t0), "report": str(re
            "summary": data.get("summary"), "children_seen": sorted({n for _, n, _c in children_seen}),
            "children_left_after_exit": left,
            "last_shutdown": next((json.loads(p.read_text(encoding="utf-8")) for p in
-                                  (BASE / "app" / "ESG-XK-Data" / "runs" / "last_shutdown.json",
+                                  (BASE / "ESG-XK-Data-moved" / "runs" / "last_shutdown.json",
+                                   BASE / "app" / "ESG-XK-Data" / "runs" / "last_shutdown.json",
                                    BASE / "ESG-XK-Data" / "runs" / "last_shutdown.json") if p.exists()), None)}
 (BASE / "exe_acceptance_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
 print(json.dumps(summary, ensure_ascii=False, indent=1))

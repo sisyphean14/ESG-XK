@@ -159,6 +159,14 @@ class GuiAcceptance(QObject):
         # 1 Dashboard
         page = win.goto("dashboard")
         self.record("启动并显示首页 Dashboard", True, f"数据目录 {ctx.dr.root}；integrity={ctx.startup_report.integrity}")
+        if os.environ.get("ESGXK_PORTABLE_BASE"):
+            prof_raw = json.loads(ctx.pm.path.read_text(encoding="utf-8"))
+            self.record("首次运行：数据与配置保存在程序文件夹内（便携模式，相对路径）",
+                        ctx.pm.portable and paths.is_portable()
+                        and Path(ctx.dr.root).resolve() == paths.portable_data_root().resolve()
+                        and not os.path.isabs(prof_raw.get("data_root", "")),
+                        f"portable.flag={paths.is_portable()}；Profile={ctx.pm.path}；data_root(保存值)={prof_raw.get('data_root')}",
+                        shot=False)
         yield ("sleep", 1)
         # 可靠性验收参数（仅验收模式）：较短的无进展超时，便于在验收时间内触发真实超时
         from esgxk.core import settings as S
@@ -373,9 +381,14 @@ class GuiAcceptance(QObject):
         mp = win.goto("models")
         yield ("wait", lambda: mp.hw is not None, 60, "硬件检测")
         mp.target.setText(os.environ.get("ESGXK_ACCEPT_MODELS_DIR", str(paths.default_models_dir())))
+        from esgxk.ai.downloader import recommend
+        full = recommend(mp.mgr.catalog, mp.hw)
+        expect = [i for i in full if not mp._installed_text(mp.mgr.get_item(i))]   # 已配置可用的同类资产不重复推荐
         self.record("模型下载中心：清单 / 硬件推荐 / 安装位置（下载前选择）",
-                    mp.table.rowCount() >= 8 and bool(mp._checked_ids()) and "合计下载约" in mp.summary.text(),
-                    f"推荐：{','.join(mp._checked_ids())}；{mp.summary.text()}")
+                    mp.table.rowCount() >= 8 and sorted(mp._checked_ids()) == sorted(expect)
+                    and "合计下载约" in mp.summary.text() and "目标磁盘可用" in mp.summary.text(),
+                    f"硬件 {mp.hw}；硬件推荐 {full}；本机已配置同类资产后实际勾选 {mp._checked_ids()}；"
+                    f"{mp.summary.text()}")
         if os.environ.get("ESGXK_ACCEPT_DOWNLOAD") == "1":
             mp._check_all(False)
             mp.checks["llama-cpu"].setChecked(True)
@@ -389,12 +402,15 @@ class GuiAcceptance(QObject):
             ist = mp._job.items[0]
             self.record("模型下载中心：真实下载 + SHA-256 校验 + 安装验证（llama.cpp CPU）", ist.status == "DONE",
                         f"{ist.status} {ist.installed_path} {ist.message}")
-        # V1.1.0 数据目录迁移到程序文件夹（便携模式）
+        # V1.1.0 数据目录迁移（复制 + SHA-256 + integrity，源保持不变）
         if os.environ.get("ESGXK_PORTABLE_BASE"):
             import threading as _th
             from esgxk.core import relocate
-            target = paths.portable_data_root()
             old_root = str(ctx.dr.root)
+            in_app = Path(old_root).resolve() == paths.portable_data_root().resolve()
+            # 首次运行已选择“程序文件夹内”时，验证迁移到其他位置；否则验证迁移到程序文件夹内（启用便携模式）
+            target = (paths.portable_base().parent / "ESG-XK-Data-moved") if in_app else paths.portable_data_root()
+            to_portable = not in_app
             docs_before = ctx.conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
             ctx.prepare_relocate(str(target))
             win.timer.stop()
@@ -405,15 +421,16 @@ class GuiAcceptance(QObject):
                             daemon=True)
             th.start()
             yield ("wait", lambda: prog.finished, 1800, "迁移数据目录")
-            ctx.finish_relocate(old_root, str(target) if "r" in box else None, portable=True)
+            ctx.finish_relocate(old_root, str(target) if "r" in box else None, portable=to_portable)
             win.timer.start()
             docs_after = ctx.conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
             r = box.get("r", {})
-            self.record("迁移数据目录到程序文件夹内（复制 + SHA-256 + integrity，源保持不变）",
+            self.record("迁移数据目录（复制 + 逐文件 SHA-256 + integrity_check，通过后切换，源目录保持不变）",
                         "r" in box and Path(ctx.dr.root) == target.resolve() and docs_before == docs_after
-                        and Path(old_root, "database", "esgxk.db").exists() and ctx.pm.portable,
+                        and Path(old_root, "database", "esgxk.db").exists() and (ctx.pm.portable or not to_portable),
                         f"{old_root} → {ctx.dr.root}；文件 {r.get('files')}，SHA-256 {r.get('sha256_verified')}，"
-                        f"文档 {docs_before}/{docs_after}；{prog.error}")
+                        f"integrity={r.get('integrity', {}).get('integrity_ok')}，文档 {docs_before}/{docs_after}；"
+                        f"Profile {ctx.pm.path}；{prog.error}")
         # 19 运行控制
         rp = win.goto("runs")
         rp.refresh()
