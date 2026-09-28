@@ -227,6 +227,52 @@ class AppContext:
         audit("切换数据目录", f"{old} → {target}")
         return rep
 
+    # ------------------------------------------------------------------ 迁移数据目录
+    def prepare_relocate(self, target: str) -> int:
+        """迁移前检查（在 GUI 线程调用）；通过后调用方执行 close() → relocate.copy_verified() → finish_relocate()。"""
+        from esgxk.core import relocate
+        if self.run_active():
+            raise EsgError(ErrorCode.RUN_ALREADY_ACTIVE, "请先安全停止处理任务再迁移数据目录")
+        if self.imports and self.imports.busy:
+            raise EsgError(ErrorCode.RUN_ALREADY_ACTIVE, "导入进行中，请先暂停或取消导入")
+        return relocate.check_target(self.dr.root, Path(target))
+
+    def finish_relocate(self, old_root: str, target: str | None, *, portable: bool) -> StartupReport:
+        """复制校验成功后切换到新数据目录（target=None 表示迁移失败 / 取消，重新打开原目录）。
+
+        portable=True：同时启用便携模式，Profile 保存到程序文件夹内。源数据目录保持原样，由用户自行决定是否删除。
+        """
+        from esgxk.core import paths
+        if target is None:
+            self.profile.data_root = old_root
+            return self.open()
+        old_pm, old_profile = self.pm, self.profile
+        new_profile = Profile.from_dict(self.profile.to_dict())
+        new_profile.data_root = str(Path(target).resolve())
+        new_pm = self.pm
+        flag_created = False
+        if portable and not self.pm.portable:
+            paths.enable_portable()
+            flag_created = True
+            new_pm = ProfileManager(paths.portable_profile_dir())
+        try:
+            self.pm, self.profile = new_pm, new_profile
+            rep = self.open()
+            new_pm.save(new_profile)
+        except BaseException:
+            if self.db is not None:
+                self.close()
+            if flag_created:
+                (paths.portable_base() / paths.PORTABLE_FLAG).unlink(missing_ok=True)
+            self.pm, self.profile = old_pm, old_profile
+            self.profile.data_root = old_root
+            self.open()
+            raise
+        if self.runs:
+            self.runs.profile_dir = self.pm.directory
+        audit("迁移数据目录", f"{old_root} → {target}（便携模式：{portable or self.pm.portable}）")
+        return rep
+
     # ------------------------------------------------------------------ 关闭
     def shutdown_check(self) -> dict:
         """退出前核对：Worker / Helper / 租约 / 端口。"""

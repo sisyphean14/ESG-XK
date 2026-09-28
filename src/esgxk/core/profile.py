@@ -4,6 +4,7 @@ strict_no_fallback = true：Profile 中的数据目录失效时只报告“数�
 """
 from __future__ import annotations
 
+import os
 import shutil
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -16,6 +17,24 @@ from esgxk.core.timeutil import now_iso
 
 PROFILE_VERSION = 1
 PROFILE_FILENAME = "default.json"
+PATH_FIELDS = ("llama_server", "embedding_model", "reranker_model", "llm_model", "ocr_python", "ocr_model_root",
+               "model_root", "runtime_root", "tools_root")
+
+
+def _to_abs(p: str, base: Path) -> str:
+    """便携 Profile 中程序文件夹内的路径以相对路径保存；读取时相对程序文件夹解析为绝对路径。"""
+    if not p or os.path.isabs(p):
+        return p
+    return str((base / p).resolve())
+
+
+def _to_rel(p: str, base: Path) -> str:
+    if not p:
+        return p
+    try:
+        return str(Path(p).resolve().relative_to(base.resolve()))
+    except (ValueError, OSError):
+        return p
 
 
 @dataclass
@@ -78,6 +97,14 @@ class ProfileManager:
         self.directory = Path(directory) if directory else paths.profile_dir()
         self.path = self.directory / PROFILE_FILENAME
 
+    @property
+    def portable(self) -> bool:
+        """Profile 位于程序文件夹内（便携模式）：程序文件夹内的路径以相对路径保存，整个文件夹可整体移动 / 复制到其他电脑。"""
+        try:
+            return self.directory.resolve() == paths.portable_profile_dir().resolve()
+        except OSError:
+            return False
+
     def exists(self) -> bool:
         return self.path.exists()
 
@@ -88,7 +115,12 @@ class ProfileManager:
             data = read_json(self.path)
         except (OSError, ValueError) as exc:
             raise EsgError(ErrorCode.PROFILE_INVALID, f"{self.path}: {exc}") from exc
-        return Profile.from_dict(data)
+        prof = Profile.from_dict(data)
+        base = paths.portable_base()
+        prof.data_root = _to_abs(prof.data_root, base)
+        for f in PATH_FIELDS:
+            setattr(prof.ai_assets, f, _to_abs(getattr(prof.ai_assets, f), base))
+        return prof
 
     def save(self, profile: Profile) -> None:
         profile.strict_no_fallback = True
@@ -104,4 +136,11 @@ class ProfileManager:
                 shutil.copy2(self.path, self.path.with_suffix(".json.bak"))
             except OSError:
                 pass
-        atomic_write_json(self.path, profile.to_dict())
+        data = profile.to_dict()
+        if self.portable:
+            base = paths.portable_base()
+            data["data_root"] = _to_rel(data["data_root"], base)
+            for f in PATH_FIELDS:
+                data["ai_assets"][f] = _to_rel(data["ai_assets"][f], base)
+            data["portable"] = True
+        atomic_write_json(self.path, data)

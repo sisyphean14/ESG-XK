@@ -57,8 +57,117 @@ class SettingsPage(PageBase):
                            button("打开数据目录", "", lambda: os.startfile(str(self.ctx.dr.root))), None))
         lay.addWidget(muted("切换前需安全停止处理任务。旧数据目录保持原样，可随时切换回来。本机 Profile 采用 strict_no_fallback："
                             "若数据目录失效，程序会明确提示“数据目录不可用”，绝不静默切换到新的空数据库。"))
+        lay.addSpacing(10)
+        lay.addWidget(section_title("迁移数据目录（复制 + 逐文件 SHA-256 校验 + 完整性检查，通过后才切换）"))
+        self.mode_info = QLabel("")
+        self.mode_info.setWordWrap(True)
+        lay.addWidget(self.mode_info)
+        self.b_to_app = button("迁移到程序文件夹内（便携模式）", "Primary", self.relocate_to_app)
+        lay.addLayout(hbox(self.b_to_app, button("迁移到其他位置…", "", self.relocate_other), None))
+        lay.addWidget(muted("便携模式：数据目录与本机配置都保存在程序文件夹内（ESG-XK-Data、profile 子文件夹），不会遗失或占用 C 盘；"
+                            "整个程序文件夹可以整体复制到移动硬盘或其他电脑继续使用。迁移不会删除原数据目录，"
+                            "确认新位置正常后可自行删除旧目录。"))
         lay.addStretch(1)
         return w
+
+    def relocate_to_app(self) -> None:
+        target = paths.portable_data_root()
+        if not paths.dir_writable(paths.portable_base()):
+            show_error(self, f"程序文件夹不可写：{paths.portable_base()}\n请把程序放到可写的位置（例如 D:\\ESG-XK），"
+                             "不要放在 C:\\Program Files 中。")
+            return
+        if Path(self.ctx.dr.root).resolve() == target.resolve():
+            if not self.ctx.pm.portable:
+                if confirm(self, "启用便携模式", "数据目录已在程序文件夹内。是否把本机配置也保存到程序文件夹内（启用便携模式）？"):
+                    self._relocate(None, portable=True)
+            else:
+                info(self, "已是便携模式", "数据目录与配置已保存在程序文件夹内。")
+            return
+        self._relocate(target, portable=True)
+
+    def relocate_other(self) -> None:
+        d = QFileDialog.getExistingDirectory(self, "选择新的数据目录位置（空文件夹）")
+        if d:
+            self._relocate(Path(d), portable=False)
+
+    def _relocate(self, target: Path | None, *, portable: bool) -> None:
+        import threading
+        from PySide6.QtWidgets import QApplication, QProgressDialog
+        from esgxk.core import relocate
+        ctx = self.ctx
+        old_root = str(ctx.dr.root)
+        if target is None:        # 仅启用便携模式（数据已在程序文件夹内）
+            self.main.timer.stop()
+            try:
+                ctx.close()
+                ctx.finish_relocate(old_root, old_root, portable=True)
+                info(self, "已启用便携模式", f"配置已保存到：{ctx.pm.path}")
+            except Exception as exc:  # noqa: BLE001
+                show_error(self, exc, "启用便携模式失败")
+            finally:
+                self.main.timer.start()
+                self.refresh()
+            return
+        try:
+            need = ctx.prepare_relocate(str(target))
+        except EsgError as exc:
+            show_error(self, exc, "无法迁移")
+            return
+        if not confirm(self, "迁移数据目录", f"将把当前数据目录（约 {need / 1e9:.2f} GB）复制到：\n{target}\n\n"
+                                             "复制完成后逐文件校验 SHA-256 并检查数据库完整性，全部通过才切换；原目录保持不变。\n"
+                                             "迁移期间程序暂停使用。是否开始？"):
+            return
+        self.main.timer.stop()
+        ctx.close()
+        prog = relocate.RelocateProgress()
+        cancel = threading.Event()
+        result: dict = {}
+
+        def work() -> None:
+            try:
+                result["report"] = relocate.copy_verified(Path(old_root), target, prog, cancel)
+            except BaseException as exc:  # noqa: BLE001
+                result["error"] = exc
+
+        th = threading.Thread(target=work, daemon=True, name="esgxk-relocate")
+        th.start()
+        dlg = QProgressDialog("正在迁移数据目录…", "取消迁移", 0, 1000, self)
+        dlg.setWindowTitle("迁移数据目录")
+        dlg.setWindowModality(Qt.WindowModal)
+        dlg.setMinimumDuration(0)
+        dlg.setAutoClose(False)
+        dlg.setAutoReset(False)
+        while th.is_alive():
+            QApplication.processEvents()
+            if dlg.wasCanceled():
+                cancel.set()
+            tot = max(1, prog.total_bytes if prog.phase == "复制" else prog.total_files)
+            done = prog.done_bytes if prog.phase == "复制" else prog.done_files
+            dlg.setValue(min(1000, int(done * 1000 / tot)))
+            dlg.setLabelText(f"{prog.phase}：{prog.done_files}/{prog.total_files} 个文件，"
+                             f"{prog.done_bytes / 1e6:.0f}/{prog.total_bytes / 1e6:.0f} MB\n{prog.current[-80:]}")
+            th.join(0.1)
+        dlg.close()
+        try:
+            if "report" in result:
+                ctx.finish_relocate(old_root, str(target), portable=portable)
+                r = result["report"]
+                info(self, "迁移完成", f"已切换到新数据目录：{ctx.dr.root}\n文件 {r['files']} 个，{r['bytes'] / 1e6:.0f} MB，"
+                                     f"SHA-256 校验 {r['sha256_verified']} 个全部一致，数据库 integrity_check = ok，"
+                                     f"耗时 {r['seconds']}s。\n\n原数据目录保持不变：{old_root}\n"
+                                     "确认新位置一切正常后，可自行删除旧目录。")
+            else:
+                ctx.finish_relocate(old_root, None, portable=False)
+                err = result.get("error")
+                if prog.cancelled:
+                    info(self, "已取消", "迁移已取消，继续使用原数据目录。")
+                else:
+                    show_error(self, err or "未知错误", "迁移失败（已继续使用原数据目录）")
+        except Exception as exc:  # noqa: BLE001
+            show_error(self, exc, "切换失败")
+        finally:
+            self.main.timer.start()
+            self.refresh()
 
     def switch_existing(self) -> None:
         d = QFileDialog.getExistingDirectory(self, "选择已有的 ESG-XK 数据目录")
@@ -112,8 +221,10 @@ class SettingsPage(PageBase):
         self.gpu.setRange(0, 999)
         self.gpu.setToolTip("llama.cpp -ngl：放到 GPU 的层数；0 = 纯 CPU")
         lay.addLayout(hbox(QLabel("GPU 层数（-ngl）"), self.gpu, None))
-        self.b_discover = button("重新探测本机资产", "", self.discover)
+        self.b_discover = button("快速探测常用位置", "", self.discover)
         lay.addLayout(hbox(button("保存 AI 资产配置", "Primary", self.save_assets), self.b_discover,
+                           button("扫描电脑…", "", self.scan_computer, "选择磁盘 / 文件夹，查找电脑上已有的 AI 模型与 OCR 运行时"),
+                           button("下载模型…", "", lambda: self.main.goto("models")),
                            button("测试 OCR", "", lambda: self.test("OCR")),
                            button("测试 Embedding", "", lambda: self.test("EMBED")),
                            button("测试 Reranker", "", lambda: self.test("RERANK")),
@@ -179,6 +290,27 @@ class SettingsPage(PageBase):
             show_error(self, exc)
 
         run_task(ai_assets.discover, done, fail)
+
+    def scan_computer(self) -> None:
+        from esgxk.ui.dialogs.asset_scan import AssetScanDialog
+        dlg = AssetScanDialog(self)
+        dlg.exec()
+        if dlg.report is not None:
+            if self._report is None:
+                self._report = dlg.report
+            else:
+                known = {(c.kind, c.path.lower()) for c in self._report.candidates}
+                self._report.candidates += [c for c in dlg.report.candidates if (c.kind, c.path.lower()) not in known]
+        if dlg.chosen:
+            self._fill_assets()
+            for kind, path in dlg.chosen.items():
+                if kind in self.asset_combo:
+                    self.asset_combo[kind].setCurrentText(path)
+            self._update_states()
+            names = "、".join(ai_assets.KIND_LABELS.get(k, k) for k in dlg.chosen)
+            self.asset_msg.setText(f"已从扫描结果填入：{names}。确认后请点击“保存 AI 资产配置”。")
+        elif dlg.report is not None:
+            self._fill_assets()
 
     def save_assets(self) -> None:
         if self.ctx.run_active():
@@ -388,6 +520,12 @@ class SettingsPage(PageBase):
         self.dr_info.setText(f"路径：{ctx.dr.root}\n数据目录ID：{info_.get('data_root_id')}\n创建：{info_.get('created_at')}"
                              f"（ESG-XK {info_.get('created_by_version')}）\n数据库：{ctx.dr.db_path}\n"
                              f"Profile：{ctx.pm.path}（strict_no_fallback = true）")
+        if ctx.pm.portable:
+            self.mode_info.setText(f"当前：<b>便携模式</b> — 配置保存在 {ctx.pm.directory}"
+                                   + ("，数据目录在程序文件夹内。" if Path(ctx.dr.root).resolve() == paths.portable_data_root().resolve()
+                                      else "，数据目录在程序文件夹外。"))
+        else:
+            self.mode_info.setText(f"当前：<b>标准模式</b> — 配置保存在 {ctx.pm.directory}；程序文件夹：{paths.portable_base()}")
         self._fill_assets()
         for b in self.prof_group.buttons():
             b.setChecked(b.property("profile") == ctx.profile.resource_profile)

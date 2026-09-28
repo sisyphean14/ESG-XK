@@ -16,9 +16,10 @@ hidden = ["esgxk.processing.worker", "esgxk.processing.parse_helper", "esgxk.par
           "esgxk.parsers.text_parser", "esgxk.parsers.image_parser", "esgxk.core.faults", "esgxk.db.schema_v2", "esgxk.ui.app", "esgxk.ui.acceptance", "faiss", "pypdfium2", "pypdfium2_raw",
           "openpyxl", "docx", "pptx", "PIL.Image", "psutil", "numpy", "PySide6.QtSvg"]
 for sub in ("dashboard", "library", "import_page", "processing", "search_page", "semantic_page", "qa_page",
-            "knowledge_page", "runs_page", "backup_page", "logs_page", "settings_page"):
+            "knowledge_page", "runs_page", "backup_page", "logs_page", "settings_page", "models_page"):
     hidden.append(f"esgxk.ui.pages.{sub}")
-hidden += ["esgxk.ui.dialogs.document_detail", "esgxk.ui.dialogs.source_viewer", "esgxk.ui.dialogs.validity"]
+hidden += ["esgxk.ui.dialogs.document_detail", "esgxk.ui.dialogs.source_viewer", "esgxk.ui.dialogs.validity",
+           "esgxk.ui.dialogs.asset_scan", "esgxk.ai.downloader", "esgxk.ai.scanner", "esgxk.core.relocate"]
 
 excludes = ["tkinter", "matplotlib", "IPython", "pytest", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets",
             "PySide6.QtWebEngineQuick", "PySide6.Qt3DCore", "PySide6.Qt3DRender", "PySide6.QtQuick", "PySide6.QtQml",

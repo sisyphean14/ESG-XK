@@ -27,6 +27,7 @@ NAV = [
     ("runs", "运行控制", "run"),
     ("backup", "备份恢复", "backup"),
     ("logs", "日志中心", "logs"),
+    ("models", "模型下载", "models"),
     ("settings", "设置", "settings"),
 ]
 
@@ -137,6 +138,7 @@ class MainWindow(QMainWindow):
         from esgxk.ui.pages.knowledge_page import KnowledgePage
         from esgxk.ui.pages.library import LibraryPage
         from esgxk.ui.pages.logs_page import LogsPage
+        from esgxk.ui.pages.models_page import ModelsPage
         from esgxk.ui.pages.processing import ProcessingPage
         from esgxk.ui.pages.qa_page import QaPage
         from esgxk.ui.pages.runs_page import RunsPage
@@ -145,7 +147,7 @@ class MainWindow(QMainWindow):
         from esgxk.ui.pages.settings_page import SettingsPage
         classes = {"dashboard": DashboardPage, "library": LibraryPage, "import": ImportPage,
                    "processing": ProcessingPage, "search": SearchPage, "semantic": SemanticPage, "qa": QaPage,
-                   "knowledge": KnowledgePage, "runs": RunsPage, "backup": BackupPage, "logs": LogsPage,
+                   "knowledge": KnowledgePage, "runs": RunsPage, "backup": BackupPage, "logs": LogsPage, "models": ModelsPage,
                    "settings": SettingsPage}
         for key, _label, _ic in NAV:
             page = classes[key](self)
@@ -240,6 +242,7 @@ class MainWindow(QMainWindow):
         self.estop_btn.setEnabled(False)
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
+            self._stop_background_downloads()
             rep = self.ctx.runs.emergency_stop()
         except Exception as exc:
             QApplication.restoreOverrideCursor()
@@ -296,14 +299,31 @@ class MainWindow(QMainWindow):
             if not QMessageBox.question(self, "导入进行中", "导入任务正在进行，退出将取消剩余导入项。确定退出？") == QMessageBox.Yes:
                 event.ignore()
                 return
+        mp = self.pages.get("models")
+        if mp is not None and mp.mgr is not None and mp.mgr.busy:
+            if not QMessageBox.question(self, "下载进行中", "模型正在下载 / 安装，退出将取消下载（已下载部分下次可续传）。确定退出？") \
+                    == QMessageBox.Yes:
+                event.ignore()
+                return
         self._closing = True
         self.timer.stop()
+        self._stop_background_downloads()
         report = self.ctx.close()
         audit_ok = report.get("workers") == 0 and report.get("helpers") == 0 and not report.get("ports") \
             and not report.get("worker_lease_held")
         if not audit_ok:
             QMessageBox.warning(self, "退出核对", f"退出核对发现残留：{report}")
         event.accept()
+
+    def _stop_background_downloads(self) -> None:
+        for page in self.pages.values():
+            for attr in ("shutdown", "cancel_scan"):
+                fn = getattr(page, attr, None)
+                if callable(fn):
+                    try:
+                        fn()
+                    except Exception as exc:  # noqa: BLE001
+                        elog("app", logging.ERROR, f"停止后台下载 / 扫描失败：{exc}", exc=exc)
 
     def _safe_stop_and_wait(self, run_id: str | None) -> bool:
         if run_id:

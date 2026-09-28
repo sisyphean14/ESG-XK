@@ -23,30 +23,46 @@ from esgxk.ui.widgets import show_error
 
 
 class FirstRunDialog(QDialog):
-    """首次运行：选择 / 创建数据目录。"""
+    """首次运行：选择数据保存位置（程序文件夹内 = 便携模式，或自定义位置）。"""
 
     def __init__(self, default_root: Path):
         super().__init__()
         self.setWindowTitle("欢迎使用 ESG-XK — 首次运行")
         self.setWindowIcon(theme.app_icon())
-        self.resize(640, 300)
+        self.resize(720, 380)
         lay = QVBoxLayout(self)
-        title = QLabel("设置数据目录（Data Root）")
+        title = QLabel("数据保存在哪里？")
         title.setObjectName("PageTitle")
         lay.addWidget(title)
-        desc = QLabel("数据目录保存数据库、索引、托管副本、日志与备份。应用程序与用户数据分离；"
-                      "您的源文件始终保持只读，ESG-XK 不会修改、移动或删除它们。")
+        desc = QLabel("数据目录保存数据库、索引、托管副本、日志与备份。您的源文件始终保持只读，ESG-XK 不会修改、移动或删除它们。")
         desc.setWordWrap(True)
         desc.setObjectName("Muted")
         lay.addWidget(desc)
+        self.app_ok = paths.dir_writable(paths.portable_base())
+        self.rb_portable = QRadioButton(f"保存在程序文件夹内（推荐 · 便携模式）：{paths.portable_data_root()}")
+        self.rb_custom = QRadioButton("保存在其他位置：")
+        lay.addWidget(self.rb_portable)
+        hint = QLabel("数据与本机配置都放在程序文件夹里，不占用 C 盘、不会遗失；整个文件夹可以直接复制到移动硬盘或另一台电脑继续使用。"
+                      if self.app_ok else "程序文件夹当前不可写（例如位于 C:\\Program Files），无法使用便携模式。")
+        hint.setWordWrap(True)
+        hint.setObjectName("Muted")
+        hint.setContentsMargins(24, 0, 0, 6)
+        lay.addWidget(hint)
+        lay.addWidget(self.rb_custom)
         row = QHBoxLayout()
+        row.setContentsMargins(24, 0, 0, 0)
         self.path = QLineEdit(str(default_root))
         browse = QPushButton("浏览…")
         browse.clicked.connect(self._browse)
         row.addWidget(self.path, 1)
         row.addWidget(browse)
         lay.addLayout(row)
-        note = QLabel("若所选目录已是 ESG-XK 数据目录，将直接使用；否则将在该位置创建新的数据目录。")
+        self.rb_portable.setEnabled(self.app_ok)
+        (self.rb_portable if self.app_ok else self.rb_custom).setChecked(True)
+        self.rb_portable.toggled.connect(lambda on: (self.path.setEnabled(not on), browse.setEnabled(not on)))
+        self.path.setEnabled(not self.app_ok)
+        browse.setEnabled(not self.app_ok)
+        note = QLabel("若所选目录已是 ESG-XK 数据目录，将直接使用；否则将在该位置创建新的数据目录。以后可在“设置 → 数据目录”中迁移。")
         note.setObjectName("Muted")
         note.setWordWrap(True)
         lay.addWidget(note)
@@ -58,6 +74,13 @@ class FirstRunDialog(QDialog):
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
+
+    @property
+    def portable(self) -> bool:
+        return self.rb_portable.isChecked()
+
+    def target(self) -> Path:
+        return paths.portable_data_root() if self.portable else Path(self.path.text().strip())
 
     def _browse(self) -> None:
         d = QFileDialog.getExistingDirectory(self, "选择数据目录", self.path.text())
@@ -108,7 +131,11 @@ def _open_context(app: QApplication, ctx: AppContext) -> bool:
         dlg = FirstRunDialog(paths.default_data_root())
         if dlg.exec() != QDialog.Accepted:
             return False
-        target = Path(dlg.path.text().strip())
+        target = dlg.target()
+        if dlg.portable:
+            paths.enable_portable()
+            ctx.pm = ProfileManager(paths.portable_profile_dir())
+            pm = ctx.pm
         try:
             if (target / MARKER_NAME).exists():
                 validate_data_root(target)

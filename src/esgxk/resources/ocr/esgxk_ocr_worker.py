@@ -30,6 +30,9 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-root", required=True)
     parser.add_argument("--threads", type=int, default=4)
+    for key in ("det", "rec", "ori"):
+        parser.add_argument(f"--{key}-dir")
+        parser.add_argument(f"--{key}-name")
     args = parser.parse_args()
     try:
         os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
@@ -40,16 +43,19 @@ def main() -> int:
 
         root = args.model_root
         t0 = time.time()
+        kw = dict(
+            text_detection_model_name=args.det_name or "PP-OCRv6_small_det",
+            text_detection_model_dir=args.det_dir or os.path.join(root, "detection"),
+            text_recognition_model_name=args.rec_name or "PP-OCRv6_small_rec",
+            text_recognition_model_dir=args.rec_dir or os.path.join(root, "recognition"),
+        )
+        if args.ori_dir:
+            kw.update(textline_orientation_model_name=args.ori_name, textline_orientation_model_dir=args.ori_dir)
         ocr = PaddleOCR(
-            text_detection_model_name="PP-OCRv6_small_det",
-            text_detection_model_dir=os.path.join(root, "detection"),
-            text_recognition_model_name="PP-OCRv6_small_rec",
-            text_recognition_model_dir=os.path.join(root, "recognition"),
-            textline_orientation_model_name="PP-LCNet_x1_0_textline_ori",
-            textline_orientation_model_dir=os.path.join(root, "textline_orientation"),
+            **kw,
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
-            use_textline_orientation=True,
+            use_textline_orientation=bool(args.ori_dir),
             device="cpu",
             enable_mkldnn=False,
             cpu_threads=max(1, args.threads),

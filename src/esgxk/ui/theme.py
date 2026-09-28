@@ -150,6 +150,7 @@ _ICON_PATHS = {
     "run": '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
     "backup": '<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10h14V9"/><path d="M10 13h4"/>',
     "logs": '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 12h6M9 16h6"/>',
+    "models": '<path d="M12 3v10"/><path d="M8 9l4 4 4-4"/><rect x="3" y="15" width="18" height="6" rx="1.5"/><path d="M7 18h.01M11 18h6"/>',
     "settings": '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
 }
 

@@ -1,0 +1,327 @@
+{
+ "catalog_version": 1,
+ "generated_for": "ESG-XK 1.1.0",
+ "llama_cpp_tag": "b11228",
+ "items": [
+  {
+   "id": "llama-cpu",
+   "kind": "llama_server",
+   "title": "llama.cpp 推理服务（CPU 版）",
+   "desc": "运行 Embedding / Reranker / LLM 的本地推理服务。适用于没有 NVIDIA 显卡的电脑。",
+   "subdir": "llama.cpp-cpu",
+   "entry": "llama-server.exe",
+   "requires": {
+    "gpu": null
+   },
+   "files": [
+    {
+     "name": "llama-b11228-bin-win-cpu-x64.zip",
+     "size": 19156665,
+     "sha256": "5833c857a95a49ad9301905b6f4f5890a27ffc2e1289fa29ff3f071f20c22c77",
+     "sources": [
+      "https://github.com/ggml-org/llama.cpp/releases/download/b11228/llama-b11228-bin-win-cpu-x64.zip"
+     ],
+     "extract": true
+    }
+   ]
+  },
+  {
+   "id": "llama-cuda",
+   "kind": "llama_server",
+   "title": "llama.cpp 推理服务（NVIDIA GPU 版 CUDA 12.4）",
+   "desc": "使用 NVIDIA 显卡加速，速度显著快于 CPU 版。需要较新的 NVIDIA 驱动。",
+   "subdir": "llama.cpp-cuda",
+   "entry": "llama-server.exe",
+   "requires": {
+    "gpu": "nvidia"
+   },
+   "files": [
+    {
+     "name": "llama-b11228-bin-win-cuda-12.4-x64.zip",
+     "size": 264518978,
+     "sha256": "c2e123b8157b56f9cd68a0f46cdf33013170dc9252c09b7e47798fe9f39b266a",
+     "sources": [
+      "https://github.com/ggml-org/llama.cpp/releases/download/b11228/llama-b11228-bin-win-cuda-12.4-x64.zip"
+     ],
+     "extract": true
+    },
+    {
+     "name": "cudart-llama-bin-win-cuda-12.4-x64.zip",
+     "size": 391443627,
+     "sha256": "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6",
+     "sources": [
+      "https://github.com/ggml-org/llama.cpp/releases/download/b11228/cudart-llama-bin-win-cuda-12.4-x64.zip"
+     ],
+     "extract": true
+    }
+   ]
+  },
+  {
+   "id": "embed-qwen3-0.6b",
+   "kind": "embedding_model",
+   "title": "Embedding：Qwen3-Embedding-0.6B（Q8_0）",
+   "desc": "中 / 英 / 印尼语跨语言语义检索向量模型。",
+   "subdir": "embedding",
+   "entry": "Qwen3-Embedding-0.6B-Q8_0.gguf",
+   "requires": {
+    "ram_gb": 8
+   },
+   "files": [
+    {
+     "name": "Qwen3-Embedding-0.6B-Q8_0.gguf",
+     "size": 639150592,
+     "sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439",
+     "sources": [
+      "https://www.modelscope.cn/models/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/master/Qwen3-Embedding-0.6B-Q8_0.gguf",
+      "https://hf-mirror.com/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-Q8_0.gguf",
+      "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-Q8_0.gguf"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "rerank-qwen3-0.6b",
+   "kind": "reranker_model",
+   "title": "Reranker：Qwen3-Reranker-0.6B（Q8_0）",
+   "desc": "检索结果重排序，提高问答与检索准确性。",
+   "subdir": "reranker",
+   "entry": "qwen3-reranker-0.6b-q8_0.gguf",
+   "requires": {
+    "ram_gb": 8
+   },
+   "files": [
+    {
+     "name": "qwen3-reranker-0.6b-q8_0.gguf",
+     "size": 639153184,
+     "sha256": "22c9979ce4fbcdc5acdc310c6641c32797eff1aa980b8f7a2db8a8ea23429a48",
+     "sources": [
+      "https://www.modelscope.cn/models/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/resolve/master/qwen3-reranker-0.6b-q8_0.gguf",
+      "https://hf-mirror.com/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/resolve/main/qwen3-reranker-0.6b-q8_0.gguf",
+      "https://huggingface.co/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/resolve/main/qwen3-reranker-0.6b-q8_0.gguf"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "llm-qwen3-1.7b",
+   "kind": "llm_model",
+   "title": "本地大模型：Qwen3-1.7B（Q8_0，轻量）",
+   "desc": "适合 8–16 GB 内存、无独立显卡的电脑；回答速度较快。",
+   "subdir": "llm",
+   "entry": "Qwen3-1.7B-Q8_0.gguf",
+   "requires": {
+    "ram_gb": 8
+   },
+   "files": [
+    {
+     "name": "Qwen3-1.7B-Q8_0.gguf",
+     "size": 1834426016,
+     "sha256": "061b54daade076b5d3362dac252678d17da8c68f07560be70818cace6590cb1a",
+     "sources": [
+      "https://www.modelscope.cn/models/Qwen/Qwen3-1.7B-GGUF/resolve/master/Qwen3-1.7B-Q8_0.gguf",
+      "https://hf-mirror.com/Qwen/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q8_0.gguf",
+      "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q8_0.gguf"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "llm-qwen3-4b",
+   "kind": "llm_model",
+   "title": "本地大模型：Qwen3-4B（Q4_K_M，推荐）",
+   "desc": "回答质量更好；建议 16 GB 内存以上，或有 6 GB 以上显存的 NVIDIA 显卡。",
+   "subdir": "llm",
+   "entry": "Qwen3-4B-Q4_K_M.gguf",
+   "requires": {
+    "ram_gb": 16
+   },
+   "files": [
+    {
+     "name": "Qwen3-4B-Q4_K_M.gguf",
+     "size": 2497280256,
+     "sha256": "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
+     "sources": [
+      "https://www.modelscope.cn/models/Qwen/Qwen3-4B-GGUF/resolve/master/Qwen3-4B-Q4_K_M.gguf",
+      "https://hf-mirror.com/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf",
+      "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ocr-models-ppocrv5",
+   "kind": "ocr_model_root",
+   "title": "OCR 模型：PP-OCRv5 mobile（检测 + 识别 + 方向）",
+   "desc": "中文 / English / 印尼语等拉丁文字识别模型（需配合 PP-OCR 运行时）。",
+   "subdir": "ppocr-models",
+   "entry": ".",
+   "requires": {},
+   "files": [
+    {
+     "name": "PP-OCRv5_mobile_det/inference.json",
+     "size": 229777,
+     "sha256": "05feef1acb00aa4cd7362b15f7f501fc4f99d7b1fa73c1c871e0c7b1504b0f5c",
+     "sources": [
+      "https://www.modelscope.cn/models/PaddlePaddle/PP-OCRv5_mobile_det/resolve/master/inference.json",
+      "https://hf-mirror.com/PaddlePaddle/PP-OCRv5_mobile_det/resolve/main/inference.json",
+      "https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_det/resolve/main/inference.json"
+     ]
+    },
+    {
+     "name": "PP-OCRv5_mobile_det/inference.pdiparams",
+     "size": 4692937,
+     "sha256": "afa1820cb16c1fd0dad589d0f8b389139061c1ef6d68019685fd07be997dda5b",
+     "sources": [
+      "https://www.modelscope.cn/models/PaddlePaddle/PP-OCRv5_mobile_det/resolve/master/inference.pdiparams",
+      "https://hf-mirror.com/PaddlePaddle/PP-OCRv5_mobile_det/resolve/main/inference.pdiparams",
+      "https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_det/resolve/main/inference.pdiparams"
+     ]
+    },
+    {
+     "name": "PP-OCRv5_mobile_det/inference.yml",
+     "size": 903,
+     "sha256": "98069072e1b6b37d727fd9d9f11725faa46d6ea0de012f2ed26caea011c37699",
+     "sources": [
+      "https://www.modelscope.cn/models/PaddlePaddle/PP-OCRv5_mobile_det/resolve/master/inference.yml",
+      "https://hf-mirror.com/PaddlePaddle/PP-OCRv5_mobile_det/resolve/main/inference.yml",
+      "https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_det/resolve/main/inference.yml"
+     ]
+    },
+    {
+     "name": "PP-OCRv5_mobile_det/config.json",
+     "size": 2871,
+     "sha256": "7ac1c33f377ba58561f4b89d3180b6add2b7c5c60a4edac90fa4e0ceccdc6665",
+     "sources": [
+      "https://www.modelscope.cn/models/PaddlePaddle/PP-OCRv5_mobile_det/resolve/master/config.json",
+      "https://hf-mirror.com/PaddlePaddle/PP-OCRv5_mobile_det/resolve/main/config.json",
+      "https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_det/resolve/main/config.json"
+     ]
+    },
+    {
+     "name": "PP-OCRv5_mobile_rec/inference.json",
+     "size": 217724,
+     "sha256": "24587345250c7332d0fc6f9a44e794d078cdaeb64c302fef906f325619de2569",
+     "sources": [
+      "https://www.modelscope.cn/models/PaddlePaddle/PP-OCRv5_mobile_rec/resolve/master/inference.json",
+      "https://hf-mirror.com/PaddlePaddle/PP-OCRv5_mobile_rec/resolve/main/inference.json",
+      "https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_rec/resolve/main/inference.json"
+     ]
+    },
+    {
+     "name": "PP-OCRv5_mobile_rec/inference.pdiparams",
+     "size": 16458665,
+     "sha256": "2460da90875937c94db97eba74ae3d9e5d4c4c57c42f1f41531c09a26bcc771a",
+     "sources": [
+      "https://www.modelscope.cn/models/PaddlePaddle/PP-OCRv5_mobile_rec/resolve/master/inference.pdiparams",
+      "https://hf-mirror.com/PaddlePaddle/PP-OCRv5_mobile_rec/resolve/main/inference.pdiparams",
+      "https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_rec/resolve/main/inference.pdiparams"
+     ]
+    },
+    {
+     "name": "PP-OCRv5_mobile_rec/inference.yml",
+     "size": 148345,
+     "sha256": "5dfeb2777f6d0db8177d8128a8acfcf6e6276dc4ac73ea3bf0dc06d6a5e85d8e",
+     "sources": [
+      "https://www.modelscope.cn/models/PaddlePaddle/PP-OCRv5_mobile_rec/resolve/master/inference.yml",
+      "https://hf-mirror.com/PaddlePaddle/PP-OCRv5_mobile_rec/resolve/main/inference.yml",
+      "https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_rec/resolve/main/inference.yml"
+     ]
+    },
+    {
+     "name": "PP-OCRv5_mobile_rec/config.json",
+     "size": 352253,
+     "sha256": "6df1587ae056f0b987125fc894b17f62ae3a12644fa2488d108f19377da9c1a8",
+     "sources": [
+      "https://www.modelscope.cn/models/PaddlePaddle/PP-OCRv5_mobile_rec/resolve/master/config.json",
+      "https://hf-mirror.com/PaddlePaddle/PP-OCRv5_mobile_rec/resolve/main/config.json",
+      "https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_rec/resolve/main/config.json"
+     ]
+    },
+    {
+     "name": "PP-LCNet_x1_0_textline_ori/inference.json",
+     "size": 104399,
+     "sha256": "b81929eeaff8e52db0fafb49c9fbfc5bc0572f81641fe0179cc52096323fb4d4",
+     "sources": [
+      "https://www.modelscope.cn/models/PaddlePaddle/PP-LCNet_x1_0_textline_ori/resolve/master/inference.json",
+      "https://hf-mirror.com/PaddlePaddle/PP-LCNet_x1_0_textline_ori/resolve/main/inference.json",
+      "https://huggingface.co/PaddlePaddle/PP-LCNet_x1_0_textline_ori/resolve/main/inference.json"
+     ]
+    },
+    {
+     "name": "PP-LCNet_x1_0_textline_ori/inference.pdiparams",
+     "size": 6743918,
+     "sha256": "0de2bcf996cf553e2b848dd7b1769dafffc6917b1ccdf55c1d8efe7909fbf743",
+     "sources": [
+      "https://www.modelscope.cn/models/PaddlePaddle/PP-LCNet_x1_0_textline_ori/resolve/master/inference.pdiparams",
+      "https://hf-mirror.com/PaddlePaddle/PP-LCNet_x1_0_textline_ori/resolve/main/inference.pdiparams",
+      "https://huggingface.co/PaddlePaddle/PP-LCNet_x1_0_textline_ori/resolve/main/inference.pdiparams"
+     ]
+    },
+    {
+     "name": "PP-LCNet_x1_0_textline_ori/inference.yml",
+     "size": 735,
+     "sha256": "8d5120d0e1a30a9df7ed46aa9119da3796ed066777089d1c1d705f132d5e90f9",
+     "sources": [
+      "https://www.modelscope.cn/models/PaddlePaddle/PP-LCNet_x1_0_textline_ori/resolve/master/inference.yml",
+      "https://hf-mirror.com/PaddlePaddle/PP-LCNet_x1_0_textline_ori/resolve/main/inference.yml",
+      "https://huggingface.co/PaddlePaddle/PP-LCNet_x1_0_textline_ori/resolve/main/inference.yml"
+     ]
+    },
+    {
+     "name": "PP-LCNet_x1_0_textline_ori/config.json",
+     "size": 2487,
+     "sha256": "c1a2576f9713adabdc4a58d9d654fcc9ea93b6efd0e2d3581d5aab409a33f14f",
+     "sources": [
+      "https://www.modelscope.cn/models/PaddlePaddle/PP-LCNet_x1_0_textline_ori/resolve/master/config.json",
+      "https://hf-mirror.com/PaddlePaddle/PP-LCNet_x1_0_textline_ori/resolve/main/config.json",
+      "https://huggingface.co/PaddlePaddle/PP-LCNet_x1_0_textline_ori/resolve/main/config.json"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ppocr-runtime",
+   "kind": "ocr_python",
+   "title": "PP-OCR 运行时（Python 3.12 + PaddlePaddle + PaddleOCR，CPU）",
+   "desc": "离线 OCR 引擎运行环境：嵌入式 Python 3.12.10 + paddlepaddle 3.3.1 + paddleocr 3.7.0。安装过程需联网下载约 0.5–1 GB 依赖，耗时较长。",
+   "subdir": "ppocr-runtime",
+   "entry": "python.exe",
+   "requires": {
+    "ram_gb": 8
+   },
+   "files": [
+    {
+     "name": "python-3.12.10-embed-amd64.zip",
+     "size": 11133606,
+     "sha256": "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3",
+     "extract": true,
+     "sources": [
+      "https://registry.npmmirror.com/-/binary/python/3.12.10/python-3.12.10-embed-amd64.zip",
+      "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip"
+     ]
+    },
+    {
+     "name": "pip-26.2.1-py3-none-any.whl",
+     "size": 1816632,
+     "sha256": "71138adf1f4ca900cdb7d289c21b7494329f2332b6d85f0e1c42108c0384ed3e",
+     "sources": [
+      "https://pypi.tuna.tsinghua.edu.cn/packages/f3/6e/1736e5b4ae2b778ef2f81c47d797de9f891d4d8acb047a24ca37a60294dd/pip-26.2.1-py3-none-any.whl",
+      "https://files.pythonhosted.org/packages/py3/p/pip/pip-26.2.1-py3-none-any.whl"
+     ]
+    }
+   ],
+   "pip": {
+    "packages": [
+     "paddlepaddle==3.3.1",
+     "paddleocr==3.7.0"
+    ],
+    "indexes": [
+     "https://pypi.tuna.tsinghua.edu.cn/simple",
+     "https://mirrors.aliyun.com/pypi/simple",
+     "https://pypi.org/simple"
+    ],
+    "estimated_bytes": 900000000
+   }
+  }
+ ]
+}

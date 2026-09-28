@@ -86,7 +86,8 @@ def main() -> None:
         raise SystemExit("禁止覆盖 V1.0.0 冻结交付目录")
     if OUT.exists():
         shutil.rmtree(OUT)
-    shutil.copytree(DIST, OUT)
+    # 便携模式的用户数据（profile / 数据目录 / 下载的模型）绝不进入交付物
+    shutil.copytree(DIST, OUT, ignore=shutil.ignore_patterns("portable.flag", "profile", "ESG-XK-Data", "AI-Models"))
     docs = ROOT / "release_docs"
     for name in ("README_CN.md", "USER_GUIDE_CN.md", "ADMIN_GUIDE_CN.md", "RELEASE_NOTES.md"):
         if (docs / name).exists():
@@ -102,7 +103,8 @@ def main() -> None:
         f"BUILD_PYTHON {sys.version.split()[0]}\n", encoding="utf-8")
     lic = collect_licenses(OUT / "LICENSES")
     # 交付安全检查
-    bad = [str(p) for p in OUT.rglob("*") if p.is_file() and (p.suffix.lower() in FORBIDDEN_EXT or ".git" in p.parts)]
+    bad = [str(p) for p in OUT.rglob("*") if p.is_file() and (p.suffix.lower() in FORBIDDEN_EXT or ".git" in p.parts
+                                                              or p.name == "portable.flag")]
     if bad:
         raise SystemExit(f"交付目录包含禁止的文件：{bad[:10]}")
     files = []

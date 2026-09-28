@@ -46,10 +46,60 @@ def default_data_root() -> Path:
     return Path(r"D:\ESG-XK\jiaofu\ESG-XK-Data")
 
 
+PORTABLE_FLAG = "portable.flag"
+PORTABLE_DATA_NAME = "ESG-XK-Data"
+PORTABLE_MODELS_NAME = "AI-Models"
+
+
+def portable_base() -> Path:
+    """便携模式的基准目录（程序文件夹）。测试可用 ESGXK_PORTABLE_BASE 覆盖。"""
+    env = os.environ.get("ESGXK_PORTABLE_BASE")
+    return Path(env) if env else app_dir()
+
+
+def is_portable() -> bool:
+    """程序文件夹内存在 portable.flag → 便携模式：Profile 与数据都保存在程序文件夹内。"""
+    return (portable_base() / PORTABLE_FLAG).is_file()
+
+
+def portable_profile_dir() -> Path:
+    return portable_base() / "profile"
+
+
+def portable_data_root() -> Path:
+    return portable_base() / PORTABLE_DATA_NAME
+
+
+def default_models_dir() -> Path:
+    return portable_base() / PORTABLE_MODELS_NAME
+
+
+def dir_writable(path: Path) -> bool:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / f".esgxk-write-probe-{os.getpid()}"
+        probe.write_bytes(b"ok")
+        probe.unlink()
+        return True
+    except OSError:
+        return False
+
+
+def enable_portable() -> None:
+    (portable_base() / PORTABLE_FLAG).write_text(
+        "ESG-XK 便携模式标记：本机 Profile 保存在 profile 子文件夹，数据默认保存在 ESG-XK-Data 子文件夹。\n"
+        "删除本文件将恢复标准模式（Profile 保存在 %LOCALAPPDATA%\\ESG-XK）。\n", encoding="utf-8")
+
+
 def profile_dir() -> Path:
-    """本机 Profile 目录：%LOCALAPPDATA%\\ESG-XK\\profiles（测试可用 ESGXK_PROFILE_DIR 覆盖）。"""
+    """本机 Profile 目录。
+
+    ESGXK_PROFILE_DIR（测试）> 便携模式的 <程序文件夹>\\profile > %LOCALAPPDATA%\\ESG-XK\\profiles。
+    """
     env = os.environ.get("ESGXK_PROFILE_DIR")
     if env:
         return Path(env)
+    if is_portable():
+        return portable_profile_dir()
     base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
     return Path(base) / "ESG-XK" / "profiles"

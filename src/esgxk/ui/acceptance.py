@@ -18,6 +18,7 @@ from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
 from esgxk import APP_VERSION
+from esgxk.core import paths
 from esgxk.core.timeutil import now_iso
 
 
@@ -344,6 +345,75 @@ class GuiAcceptance(QObject):
         st.tabs.setCurrentIndex(1)
         states = {k: v.text() for k, v in st.asset_state.items()}
         self.record("设置 → AI资产中心", True, json.dumps(states, ensure_ascii=False))
+        # V1.1.0 扫描电脑：在已配置 AI 资产所在的文件夹中扫描（只读）
+        emb = ctx.profile.ai_assets.embedding_model
+        if emb:
+            from PySide6.QtCore import Qt as _Qt
+            from PySide6.QtWidgets import QListWidgetItem
+            from esgxk.ui.dialogs.asset_scan import AssetScanDialog
+            scan_root = str(Path(emb).parents[1])
+            dlg = AssetScanDialog(st)
+            for i in range(dlg.scope.count()):
+                dlg.scope.item(i).setCheckState(_Qt.Unchecked)
+            it = QListWidgetItem(f"文件夹 {scan_root}")
+            it.setData(_Qt.UserRole, scan_root)
+            it.setFlags(it.flags() | _Qt.ItemIsUserCheckable)
+            it.setCheckState(_Qt.Checked)
+            dlg.scope.addItem(it)
+            dlg.show()
+            dlg.start()
+            yield ("wait", lambda: dlg.scanner.finished and not dlg.timer.isActive(), 600, "扫描电脑完成")
+            p = self.shots / f"{len(self.results) + 1:02d}-scan.png"
+            dlg.grab().save(str(p))
+            found = [c for c in dlg.report.candidates if c.path.lower() == emb.lower()]
+            self.record("扫描电脑：找到已有 AI 资产（只读，不移动 / 复制）", bool(found),
+                        dlg.status.text() + f"；Embedding 命中 {len(found)}", shot=False)
+            dlg.done(0)
+        # V1.1.0 模型下载中心
+        mp = win.goto("models")
+        yield ("wait", lambda: mp.hw is not None, 60, "硬件检测")
+        mp.target.setText(os.environ.get("ESGXK_ACCEPT_MODELS_DIR", str(paths.default_models_dir())))
+        self.record("模型下载中心：清单 / 硬件推荐 / 安装位置（下载前选择）",
+                    mp.table.rowCount() >= 8 and bool(mp._checked_ids()) and "合计下载约" in mp.summary.text(),
+                    f"推荐：{','.join(mp._checked_ids())}；{mp.summary.text()}")
+        if os.environ.get("ESGXK_ACCEPT_DOWNLOAD") == "1":
+            mp._check_all(False)
+            mp.checks["llama-cpu"].setChecked(True)
+            mp.auto_apply.setChecked(False)
+            mp._job = mp.mgr.start(["llama-cpu"], mp.target.text())
+            mp._applied = True                     # 验收时不弹出完成对话框、不改动 AI 资产配置
+            mp._set_busy(True)
+            yield ("wait", lambda: mp._job.finished, 1200, "真实下载 llama.cpp")
+            mp._set_busy(False)
+            mp.tick()
+            ist = mp._job.items[0]
+            self.record("模型下载中心：真实下载 + SHA-256 校验 + 安装验证（llama.cpp CPU）", ist.status == "DONE",
+                        f"{ist.status} {ist.installed_path} {ist.message}")
+        # V1.1.0 数据目录迁移到程序文件夹（便携模式）
+        if os.environ.get("ESGXK_PORTABLE_BASE"):
+            import threading as _th
+            from esgxk.core import relocate
+            target = paths.portable_data_root()
+            old_root = str(ctx.dr.root)
+            docs_before = ctx.conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+            ctx.prepare_relocate(str(target))
+            win.timer.stop()
+            ctx.close()
+            prog = relocate.RelocateProgress()
+            box: dict = {}
+            th = _th.Thread(target=lambda: box.update(r=relocate.copy_verified(Path(old_root), target, prog, _th.Event())),
+                            daemon=True)
+            th.start()
+            yield ("wait", lambda: prog.finished, 1800, "迁移数据目录")
+            ctx.finish_relocate(old_root, str(target) if "r" in box else None, portable=True)
+            win.timer.start()
+            docs_after = ctx.conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+            r = box.get("r", {})
+            self.record("迁移数据目录到程序文件夹内（复制 + SHA-256 + integrity，源保持不变）",
+                        "r" in box and Path(ctx.dr.root) == target.resolve() and docs_before == docs_after
+                        and Path(old_root, "database", "esgxk.db").exists() and ctx.pm.portable,
+                        f"{old_root} → {ctx.dr.root}；文件 {r.get('files')}，SHA-256 {r.get('sha256_verified')}，"
+                        f"文档 {docs_before}/{docs_after}；{prog.error}")
         # 19 运行控制
         rp = win.goto("runs")
         rp.refresh()

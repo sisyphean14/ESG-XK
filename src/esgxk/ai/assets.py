@@ -133,8 +133,46 @@ def valid_ocr_python(path: Path) -> bool:
     return False
 
 
+def _yml_model_name(yml: Path) -> str | None:
+    try:
+        for line in yml.read_text(encoding="utf-8", errors="replace").splitlines()[:40]:
+            s = line.strip()
+            if s.startswith("model_name:"):
+                return s.split(":", 1)[1].strip().strip("'\"")
+    except OSError:
+        return None
+    return None
+
+
+def resolve_ocr_models(root: str | Path) -> dict[str, tuple[str, str]]:
+    """在 OCR 模型根目录（最多两层）中按 inference.yml 的 model_name 识别检测 / 识别 / 文本行方向模型。
+    返回 {"det": (目录, 模型名), "rec": (...), "ori": (...)}（ori 可缺省）。"""
+    base = Path(root)
+    found: dict[str, tuple[str, str]] = {}
+    if not base.is_dir():
+        return found
+    cands = [base] + [p for p in base.iterdir() if p.is_dir()]
+    for p in list(cands[1:]):
+        try:
+            cands += [q for q in p.iterdir() if q.is_dir()]
+        except OSError:
+            pass
+    for d in cands:
+        yml = d / "inference.yml"
+        if not (yml.is_file() and (d / "inference.pdiparams").is_file()):
+            continue
+        name = _yml_model_name(yml) or d.name
+        low = name.lower()
+        kind = "det" if low.endswith("_det") else "rec" if low.endswith("_rec") else \
+            "ori" if "textline_ori" in low else None
+        if kind and kind not in found:
+            found[kind] = (str(d), name)
+    return found
+
+
 def valid_ocr_model_root(path: Path) -> bool:
-    return all((path / sub / "inference.pdiparams").is_file() for sub in ("detection", "recognition"))
+    r = resolve_ocr_models(path)
+    return "det" in r and "rec" in r
 
 
 def _walk_gguf(root: Path, max_depth: int, report: DiscoveryReport, t0: float, counter: list[int]) -> None:
@@ -280,7 +318,7 @@ def check_asset(kind: str, path: str) -> AssetStatus:
         if not p.is_dir():
             return AssetStatus(kind, path, "MISSING", "目录不存在")
         if not valid_ocr_model_root(p):
-            return AssetStatus(kind, path, "INVALID", "缺少 detection/recognition 模型文件")
+            return AssetStatus(kind, path, "INVALID", "未找到 PP-OCR 检测 / 识别模型（inference.yml + inference.pdiparams）")
         if not str(p).isascii():
             return AssetStatus(kind, path, "INVALID", "PP-OCR 模型路径必须为纯 ASCII 路径")
         return AssetStatus(kind, path, "OK", "可用")

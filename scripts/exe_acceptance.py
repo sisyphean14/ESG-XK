@@ -33,7 +33,11 @@ report = BASE / "gui_acceptance.json"
 env = dict(os.environ)
 env.update({"ESGXK_PROFILE_DIR": str(BASE / "profile"), "ESGXK_DEFAULT_DATA_ROOT": str(BASE / "ESG-XK-Data"),
             "ESGXK_ACCEPT_CORPUS": str(accept_corpus),
-            "ESGXK_FAULT_INJECT": "parse_hang=B_FAULT_PARSE_HANG;ocr_hang=D_FAULT_OCR_HANG"})
+            "ESGXK_FAULT_INJECT": "parse_hang=B_FAULT_PARSE_HANG;ocr_hang=D_FAULT_OCR_HANG",
+            # V1.1.0：迁移到“程序文件夹”（验收用独立目录模拟）+ 真实下载 llama.cpp CPU 版
+            "ESGXK_PORTABLE_BASE": str(BASE / "app"), "ESGXK_ACCEPT_DOWNLOAD": "1",
+            "ESGXK_ACCEPT_MODELS_DIR": str(BASE / "AI-Models")})
+(BASE / "app").mkdir(parents=True, exist_ok=True)
 t0 = time.time()
 proc = subprocess.Popen([str(EXE), "--acceptance", str(report)], env=env)
 print("started pid", proc.pid, flush=True)
@@ -63,8 +67,9 @@ data = json.loads(report.read_text(encoding="utf-8")) if report.exists() else {}
 summary = {"exit_code": rc, "seconds": round(time.time() - t0), "report": str(report),
            "summary": data.get("summary"), "children_seen": sorted({n for _, n, _c in children_seen}),
            "children_left_after_exit": left,
-           "last_shutdown": json.loads((BASE / "ESG-XK-Data" / "runs" / "last_shutdown.json").read_text(encoding="utf-8"))
-           if (BASE / "ESG-XK-Data" / "runs" / "last_shutdown.json").exists() else None}
+           "last_shutdown": next((json.loads(p.read_text(encoding="utf-8")) for p in
+                                  (BASE / "app" / "ESG-XK-Data" / "runs" / "last_shutdown.json",
+                                   BASE / "ESG-XK-Data" / "runs" / "last_shutdown.json") if p.exists()), None)}
 (BASE / "exe_acceptance_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
 print(json.dumps(summary, ensure_ascii=False, indent=1))
 for r in data.get("results", []):

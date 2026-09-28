@@ -109,8 +109,17 @@ class OcrEngine:
         self._log_fh = open(self.log_dir / "helper-ocr.log", "ab")
         try:
             import subprocess
+            from esgxk.ai.assets import resolve_ocr_models
+            models = resolve_ocr_models(self.model_root)
+            if "det" not in models or "rec" not in models:
+                raise EsgError(ErrorCode.OCR_ENGINE_UNAVAILABLE, f"OCR 模型目录不完整：{self.model_root}")
+            margs = []
+            for key in ("det", "rec", "ori"):
+                if key in models:
+                    margs += [f"--{key}-dir", models[key][0], f"--{key}-name", models[key][1]]
             self.proc = procutil.spawn(
-                [self.python_exe, "-u", str(script), "--model-root", self.model_root, "--threads", str(self.threads)],
+                [self.python_exe, "-u", str(script), "--model-root", self.model_root, "--threads", str(self.threads),
+                 *margs],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self._log_fh, env=env,
                 cwd=str(self.temp_dir),
             )
