@@ -73,7 +73,8 @@ class LlamaHelper:
     def running(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
 
-    def start(self, should_abort: Callable[[], bool] | None = None, timeout: float = 240.0) -> None:
+    def start(self, should_abort: Callable[[], bool] | None = None, timeout: float = 240.0,
+              on_wait: Callable[[], None] | None = None) -> None:
         if self.running:
             return
         for label, p in (("llama-server", self.server_exe), (MODES[self.mode], self.model_path)):
@@ -109,6 +110,8 @@ class LlamaHelper:
                                    f"model={Path(self.model_path).name}", run_id=self.run_id)
         deadline = time.time() + timeout
         while time.time() < deadline:
+            if on_wait is not None:
+                on_wait()
             if should_abort and should_abort():
                 self.stop()
                 raise InterruptedError("helper start aborted")

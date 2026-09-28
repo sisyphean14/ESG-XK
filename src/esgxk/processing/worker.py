@@ -180,7 +180,8 @@ class WorkerContext:
                         log_dir=self.dr.sub("logs"), cache_dir=self.dr.sub("cache") / "paddlex",
                         threads=self.res_profile.ocr_threads, conn_factory=self.conn_factory, run_id=self.run_id)
         try:
-            eng.start(should_abort=self.abort_now, timeout=float(self.to.get("timeout.helper_start", 240)))
+            eng.start(should_abort=self.abort_now, timeout=float(self.to.get("timeout.helper_start", 240)),
+                      on_wait=self.touch_progress)
         except BaseException:
             self.resources.release("OCR")
             raise
@@ -211,7 +212,8 @@ class WorkerContext:
         h = LlamaHelper("EMBED", self.assets.llama_server, self.assets.embedding_model, log_dir=self.dr.sub("logs"),
                         gpu_layers=self.assets.gpu_layers, conn_factory=self.conn_factory, run_id=self.run_id)
         try:
-            h.start(should_abort=self.abort_now, timeout=float(self.to.get("timeout.helper_start", 240)))
+            h.start(should_abort=self.abort_now, timeout=float(self.to.get("timeout.helper_start", 240)),
+                    on_wait=self.touch_progress)
         except BaseException:
             self.resources.release("EMBED")
             raise

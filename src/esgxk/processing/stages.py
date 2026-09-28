@@ -432,7 +432,15 @@ class StageRunner:
         msg = f"OCR 完成 {done}（缓存复用 {cached}），低置信度 {low}，失败 {failed}"
         with transaction(self.conn):
             st = self._finish_ocr_status(vid)
-            self._event(item, "OCR", st, started, t0, msg, ErrorCode.OCR_FAILED if failed else None)
+            if not failed:
+                ev_code = None
+            elif any(f["status"] == "TIMEOUT" for f in failed_units):
+                ev_code = ErrorCode.OCR_TIMEOUT
+            elif any(f["status"] == "RESOURCE_DENIED" for f in failed_units):
+                ev_code = ErrorCode.RESOURCE_WAIT_TIMEOUT
+            else:
+                ev_code = ErrorCode.OCR_FAILED
+            self._event(item, "OCR", st, started, t0, msg, ev_code)
             self._checkpoint(item, "OCR", completed=True)
         return StageOutcome("WARN" if (failed or low) else "DONE", msg)
 

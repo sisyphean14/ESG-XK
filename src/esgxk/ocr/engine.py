@@ -81,7 +81,8 @@ class OcrEngine:
     def running(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
 
-    def start(self, should_abort: Callable[[], bool] | None = None, timeout: float = 180.0) -> None:
+    def start(self, should_abort: Callable[[], bool] | None = None, timeout: float = 180.0,
+              on_wait: Callable[[], None] | None = None) -> None:
         if self.running:
             return
         if not self.python_exe or not self.model_root:
@@ -126,7 +127,7 @@ class OcrEngine:
         self._reader = threading.Thread(target=self._read_loop, name="ocr-reader", daemon=True)
         self._reader.start()
         elog("ocr", logging.INFO, f"启动 OCR helper pid={self.proc.pid}", run_id=self.run_id)
-        msg = self._wait_message(timeout, should_abort, lambda m: "event" in m)
+        msg = self._wait_message(timeout, should_abort, lambda m: "event" in m, on_wait=on_wait)
         if msg.get("event") != "ready":
             err = msg.get("error", "未知")
             self.stop()
@@ -146,9 +147,13 @@ class OcrEngine:
             pass
         self._q.put({"event": "eof"})
 
-    def _wait_message(self, timeout: float, should_abort, predicate) -> dict:
+    def _wait_message(self, timeout: float, should_abort, predicate, on_wait=None) -> dict:
         deadline = time.time() + timeout
+        last_cb = 0.0
         while time.time() < deadline:
+            if on_wait is not None and time.time() - last_cb >= 2.0:
+                last_cb = time.time()
+                on_wait()
             if should_abort and should_abort():
                 self.stop()
                 raise InterruptedError("ocr aborted")

@@ -73,6 +73,9 @@ def test_abcde_parser_and_ocr_hang_queue_continues(ctx, monkeypatch):
     att = ctx.conn.execute("SELECT ocr_attempts FROM source_units u JOIN document_versions v ON v.version_id=u.version_id "
                            "WHERE v.file_name='D_FAULT_OCR_HANG.png'").fetchone()[0]
     assert att == 2
+    ev = ctx.conn.execute("SELECT e.error_code FROM processing_events e JOIN document_versions v ON "
+                          "v.version_id=e.version_id WHERE v.file_name='D_FAULT_OCR_HANG.png' AND e.stage='OCR'").fetchone()[0]
+    assert ev == "OCR_TIMEOUT", "阶段事件错误码与失败性质一致"
 
 
 def test_restart_does_not_reprocess_failed_items(ctx, monkeypatch):

@@ -161,7 +161,8 @@ def test_emergency_stop_during_embedding_releases_port(ctx):
     assert check_file(ctx.dr.db_path)["integrity_ok"]
 
 
-def test_worker_crash_marks_interrupted_and_resumes(ctx, monkeypatch):
+def test_worker_crash_auto_recovered_by_watchdog(ctx, monkeypatch):
+    """V1.1.0：Worker 崩溃 → Watchdog 判定 CRASHED → 当前文档计入一次卡死 → 自动从 Checkpoint 续跑至完成。"""
     monkeypatch.setenv("ESGXK_STAGE_DELAY_MS", "800")
     ctx.imports.quick_import(ctx.conn, "FOLDER", [str(CORPUS / "id")])
     ids = [r[0] for r in ctx.conn.execute("SELECT document_id FROM documents")]
@@ -171,6 +172,25 @@ def test_worker_crash_marks_interrupted_and_resumes(ctx, monkeypatch):
     time.sleep(2)
     r = ctx.runs.get_run(rid)
     procutil.kill_tree(r["worker_pid"], r["worker_create_time"])  # 模拟 Worker 崩溃
+    assert wait_for(lambda: ctx.runs.get_run(rid)["worker_pid"] != r["worker_pid"], 60), "Watchdog 自动续跑"
+    assert wait_for(lambda: run_status(ctx, rid) == "COMPLETED" and not ctx.runs.worker_alive(), 300)
+    run = ctx.runs.get_run(rid)
+    assert run["stall_restarts"] == 1 and run["succeeded"] == len(ids)
+    assert sum(i["stall_count"] for i in ctx.runs.items(rid)) == 1
+
+
+def test_worker_crash_poll_fallback_without_watchdog(ctx, monkeypatch):
+    """Watchdog 不在时（兜底路径）：GUI 刷新核对把 Run 标记为 INTERRUPTED，用户可从 Checkpoint 继续。"""
+    monkeypatch.setenv("ESGXK_STAGE_DELAY_MS", "800")
+    ctx.imports.quick_import(ctx.conn, "FOLDER", [str(CORPUS / "id")])
+    ids = [r[0] for r in ctx.conn.execute("SELECT document_id FROM documents")]
+    rid = ctx.runs.create_run("SEARCHABLE_CORPUS", ids, only_stages=["PARSE", "CHUNK", "INDEX"])
+    ctx.runs.start(rid)
+    assert wait_for(lambda: run_status(ctx, rid) == "RUNNING", 60)
+    ctx.runs.close()                     # 停止 Watchdog
+    ctx.runs._closing = False
+    r = ctx.runs.get_run(rid)
+    procutil.kill_tree(r["worker_pid"], r["worker_create_time"])
     time.sleep(0.5)
     ctx.runs.poll()
     assert run_status(ctx, rid) == "INTERRUPTED"

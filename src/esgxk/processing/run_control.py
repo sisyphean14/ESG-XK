@@ -39,6 +39,13 @@ def _age(iso: str | None, now: float) -> float:
         return 0.0
 
 
+def effective_stall(to: dict) -> float:
+    """Watchdog 无进展阈值：不得短于任何单元级无进展超时 + 30 秒，避免与单元超时 / Helper 重启相互干扰。"""
+    unit = max(to.get(k, 0) for k in ("timeout.parse_no_progress", "timeout.ocr_unit", "timeout.office_image_ocr",
+                                      "timeout.embed_batch", "timeout.index_commit", "timeout.file_op"))
+    return max(to.get("watchdog.stall_seconds", 900), unit + 30)
+
+
 def _cleanup_temp(dr) -> int:
     """清理 OCR / 解析临时文件（Worker 已终止后调用）。"""
     n = 0
@@ -298,7 +305,7 @@ class RunController:
                 reason = None
                 if hb_age > to.get("watchdog.heartbeat_seconds", 90):
                     reason = f"Worker 心跳已 {int(hb_age)} 秒未更新"
-                elif prog_age > to.get("watchdog.stall_seconds", 900):
+                elif prog_age > effective_stall(to):
                     reason = f"连续 {int(prog_age)} 秒无有效进展（阶段 {run['current_stage']}，{run['progress_label'] or ''}）"
                 if reason:
                     self._recover_stall(conn, run, "STALLED", reason)
