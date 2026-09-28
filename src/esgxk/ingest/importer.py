@@ -17,7 +17,7 @@ from typing import Callable, Iterable
 
 from esgxk.core.dataroot import DataRoot
 from esgxk.core.errors import ErrorCode, EsgError
-from esgxk.core.fsutil import sha256_file
+from esgxk.core.fsutil import copy_file_guarded, sha256_file, sha256_file_guarded
 from esgxk.core.logs import audit, elog
 from esgxk.core.timeutil import now_iso
 from esgxk.db.database import connect, transaction
@@ -78,6 +78,7 @@ class Importer:
         self.dr = data_root
         self.pause_event = pause_event or threading.Event()
         self.cancel_event = cancel_event or threading.Event()
+        self.io_timeout = 120.0
 
     # ------------------------------------------------------------------ 批次
     def create_batch(self, conn: sqlite3.Connection, kind: str, inputs: list[str], *, storage_mode: str = "REFERENCE",
@@ -160,6 +161,8 @@ class Importer:
             if not batch:
                 raise EsgError(ErrorCode.IMPORT_NOT_FOUND, f"导入批次 #{batch_id}")
             incremental = not (batch["note"] or "").startswith("full")
+            from esgxk.core import settings as _s
+            self.io_timeout = float(_s.get(conn, "timeout.file_op") or 120)
             conn.execute("UPDATE import_batches SET status='RUNNING', started_at=COALESCE(started_at,?) WHERE batch_id=?",
                          (now_iso(), batch_id))
             conn.execute("UPDATE import_items SET status='WAITING' WHERE batch_id=? AND status IN ('PAUSED','PROCESSING')",
@@ -256,7 +259,9 @@ class Importer:
             return ImportOutcome("SKIPPED", "UNCHANGED", cur["document_id"], cur["version_id"], "内容未变化（增量扫描）")
 
         try:
-            sha = sha256_file(p, should_abort=self._abort)
+            sha = sha256_file_guarded(p, no_progress_timeout=self.io_timeout, should_abort=self._abort)
+        except TimeoutError as exc:
+            return ImportOutcome("FAILED", message=str(exc), error_code=ErrorCode.IMPORT_TIMEOUT)
         except PermissionError:
             return ImportOutcome("FAILED", message="没有读取权限", error_code=ErrorCode.IMPORT_ACCESS_DENIED)
         except OSError as exc:
@@ -268,7 +273,10 @@ class Importer:
 
         managed_path = None
         if storage_mode == "MANAGED":
-            managed_path = self._ensure_managed_copy(p, sha, ext)
+            try:
+                managed_path = self._ensure_managed_copy(p, sha, ext)
+            except TimeoutError as exc:
+                return ImportOutcome("FAILED", message=str(exc), error_code=ErrorCode.IMPORT_TIMEOUT)
 
         with transaction(conn):
             if target_document_id is not None:
@@ -360,11 +368,14 @@ class Importer:
         dest_dir.mkdir(parents=True, exist_ok=True)
         tmp = dest_dir / f".tmp-{uuid.uuid4().hex}{ext}"
         try:
-            shutil.copyfile(src, tmp)  # 只读取源文件
+            copy_file_guarded(src, tmp, no_progress_timeout=self.io_timeout)  # 只读取源文件
             if sha256_file(tmp) != sha:
                 raise EsgError(ErrorCode.IMPORT_MANAGED_COPY_FAILED, "副本 SHA-256 校验不一致")
             os.replace(tmp, dest)
         except EsgError:
+            tmp.unlink(missing_ok=True)
+            raise
+        except TimeoutError:
             tmp.unlink(missing_ok=True)
             raise
         except OSError as exc:

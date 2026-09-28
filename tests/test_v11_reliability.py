@@ -270,3 +270,21 @@ def test_gui_side_restart_after_crash_counts_stall(ctx, monkeypatch, tmp_env):
     assert it["H_FAULT_WORKER_HANG.txt"]["status"] == "TIMEOUT" and it["H_FAULT_WORKER_HANG.txt"]["failure_kind"] == "STALLED"
     assert it["A_正常文档.txt"]["status"] == "DONE"
     c.close()
+
+
+def test_import_hash_hang_times_out_and_queue_continues(ctx, monkeypatch, workdir):
+    """导入阶段：某文件读取被永久阻塞（真实阻塞线程）→ 无进展超时 → 记录 IMPORT_TIMEOUT → 后续文件继续导入。"""
+    monkeypatch.setenv("ESGXK_FAULT_INJECT", "hash_hang=HASH_HANG")
+    S.set_(ctx.conn, "timeout.file_op", 3)
+    files = []
+    for name in ("1_正常.txt", "2_HASH_HANG.txt", "3_正常.txt"):
+        f = workdir / name
+        f.write_text(f"{name} 导入超时测试内容", encoding="utf-8")
+        files.append(str(f))
+    t0 = time.time()
+    bid = ctx.imports.quick_import(ctx.conn, "FILES", files)
+    took = time.time() - t0
+    rows = {Path(r["path"]).name: dict(r) for r in ctx.conn.execute("SELECT * FROM import_items WHERE batch_id=?", (bid,))}
+    assert rows["2_HASH_HANG.txt"]["status"] == "FAILED" and rows["2_HASH_HANG.txt"]["error_code"] == "IMPORT_TIMEOUT"
+    assert rows["1_正常.txt"]["status"] == "DONE" and rows["3_正常.txt"]["status"] == "DONE"
+    assert took < 30
