@@ -170,7 +170,9 @@ class RunController:
         if self.profile_dir:
             cmd += ["--profile-dir", str(self.profile_dir)]
         env = dict(os.environ)
-        if not paths.is_frozen():
+        if paths.is_frozen():
+            env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"  # Worker 作为独立新实例启动
+        else:
             src = str(Path(__file__).resolve().parents[2])
             env["PYTHONPATH"] = src + os.pathsep + env.get("PYTHONPATH", "")
         try:

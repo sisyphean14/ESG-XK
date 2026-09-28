@@ -80,7 +80,7 @@ class OcrEngine:
         self.temp_dir.mkdir(parents=True, exist_ok=True)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        env = {k: v for k, v in os.environ.items() if not k.upper().startswith(("PYTHON", "PYINSTALLER", "_MEI"))}
+        env = {k: v for k, v in os.environ.items() if not k.upper().startswith(("PYTHON", "PYINSTALLER", "_MEI", "_PYI", "QT_"))}
         env.update({
             "PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK": "True",
             "PADDLE_PDX_CACHE_HOME": str(self.cache_dir),

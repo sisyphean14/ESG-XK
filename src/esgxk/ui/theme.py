@@ -111,7 +111,16 @@ QProgressBar {{ background: rgba(8,145,178,0.10); border: none; border-radius: 7
 QProgressBar::chunk {{ background: {GRAD_BTN}; border-radius: 7px; }}
 QGroupBox {{ border: 1px solid {GLASS_BORDER}; border-radius: 10px; margin-top: 14px; padding: 10px; background: {GLASS}; }}
 QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 4px; font-weight: 700; }}
-QCheckBox, QRadioButton {{ spacing: 6px; background: transparent; }}
+QCheckBox, QRadioButton {{ spacing: 7px; background: transparent; }}
+QRadioButton::indicator {{ width: 14px; height: 14px; border-radius: 9px; border: 2px solid rgba(8,145,178,0.55);
+    background: white; }}
+QRadioButton::indicator:checked {{ border: 2px solid {C['grad_a']}; background: qradialgradient(cx:0.5, cy:0.5,
+    radius:0.5, fx:0.5, fy:0.5, stop:0 {C['grad_a']}, stop:0.5 {C['grad_b']}, stop:0.56 white, stop:1 white); }}
+QRadioButton::indicator:hover, QCheckBox::indicator:hover {{ border-color: {C['grad_a']}; }}
+QCheckBox::indicator {{ width: 14px; height: 14px; border-radius: 4px; border: 2px solid rgba(8,145,178,0.55);
+    background: white; }}
+QCheckBox::indicator:checked {{ border: 2px solid {C['grad_a']}; background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+    stop:0 {C['grad_a']}, stop:1 {C['grad_b']}); }}
 QScrollArea {{ border: none; background: transparent; }}
 QTextBrowser {{ background: rgba(255,255,255,0.82); border: 1px solid {GLASS_BORDER}; border-radius: 10px; padding: 6px; }}
 QToolTip {{ background: #0B2A4A; color: #E0F7FF; border: 1px solid rgba(45,212,191,0.5); padding: 5px 8px; border-radius: 6px; }}
