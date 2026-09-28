@@ -1,0 +1,295 @@
+"""GUI 验收驱动（ESG-XK.exe --acceptance report.json）。
+
+在真实 GUI 进程中依次驱动页面与按钮（与用户点击调用相同的槽函数），覆盖：
+Dashboard → 导入 → 文档库 → 处理（开始 / 暂停 / 继续 / 安全停止 / Checkpoint 续跑 / 急停 / 急停后续跑）→
+全文搜索 → 知识检索 → AI 问答 → 备份 → 恢复 → 日志 → AI 资产中心 → 运行控制 → 退出核对。
+模态对话框由自动确认器按默认按钮关闭并记录其文本；每一步保存截图与结果到报告。
+仅在显式传入 --acceptance 时启用，用于交付前验收取证。
+"""
+from __future__ import annotations
+
+import json
+import os
+import time
+import traceback
+from pathlib import Path
+
+from PySide6.QtCore import QObject, QTimer
+from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
+
+from esgxk import APP_VERSION
+from esgxk.core.timeutil import now_iso
+
+
+class AutoDismiss(QObject):
+    """自动确认模态对话框（点击默认按钮），并记录对话框标题与文本。"""
+
+    def __init__(self, log: list):
+        super().__init__()
+        self.log = log
+        self.timer = QTimer(self)
+        self.timer.setInterval(800)
+        self.timer.timeout.connect(self._check)
+        self._seen: dict[int, float] = {}
+        self.timer.start()
+
+    def _check(self) -> None:
+        w = QApplication.activeModalWidget()
+        if w is None:
+            return
+        first = self._seen.setdefault(id(w), time.time())
+        if time.time() - first < 1.2:
+            return
+        text = ""
+        if isinstance(w, QMessageBox):
+            text = w.text() + " " + w.informativeText()
+        else:
+            from PySide6.QtWidgets import QLabel, QPlainTextEdit
+            parts = [lab.text() for lab in w.findChildren(QLabel) if lab.text()]
+            parts += [p.toPlainText()[:2000] for p in w.findChildren(QPlainTextEdit)]
+            text = "\n".join(parts)
+        self.log.append({"at": now_iso(), "title": w.windowTitle(), "text": text[:3000]})
+        if isinstance(w, QMessageBox):
+            btn = w.defaultButton() or (w.buttons()[0] if w.buttons() else None)
+            if btn is not None:
+                btn.click()
+                return
+        if isinstance(w, QDialog):
+            w.accept()
+
+
+class GuiAcceptance(QObject):
+    def __init__(self, win, report_path: str):
+        super().__init__()
+        self.win = win
+        self.ctx = win.ctx
+        self.report_path = Path(report_path).resolve()
+        self.shots = self.report_path.parent / "screens"
+        self.shots.mkdir(parents=True, exist_ok=True)
+        self.results: list[dict] = []
+        self.dialogs: list[dict] = []
+        self.auto = AutoDismiss(self.dialogs)
+        self.corpus = os.environ.get("ESGXK_ACCEPT_CORPUS", r"D:\ESG-XK\ceshi\work\gui_accept")
+        self._gen = None
+        self._wait = None
+        self.t0 = time.time()
+
+    # ------------------------------------------------------------------ 调度
+    def start(self) -> None:
+        self._gen = self.steps()
+        QTimer.singleShot(1500, self._pump)
+
+    def _pump(self) -> None:
+        if QApplication.activeModalWidget() is not None:
+            QTimer.singleShot(400, self._pump)
+            return
+        if self._wait is not None:
+            pred, deadline, name = self._wait
+            try:
+                ok = pred()
+            except Exception:  # noqa: BLE001
+                ok = False
+            if not ok and time.time() < deadline:
+                QTimer.singleShot(500, self._pump)
+                return
+            self._wait = None
+            if not ok:
+                self.record(f"等待超时：{name}", False, "")
+        try:
+            cmd = next(self._gen)
+        except StopIteration:
+            self.finish()
+            return
+        except Exception as exc:  # noqa: BLE001
+            self.record("验收脚本异常", False, traceback.format_exc())
+            self.finish()
+            return
+        if cmd and cmd[0] == "wait":
+            _, pred, timeout, name = cmd
+            self._wait = (pred, time.time() + timeout, name)
+        elif cmd and cmd[0] == "sleep":
+            QTimer.singleShot(int(cmd[1] * 1000), self._pump)
+            return
+        QTimer.singleShot(200, self._pump)
+
+    def record(self, name: str, ok: bool, detail: str = "", shot: bool = True) -> None:
+        entry = {"step": name, "result": "PASS" if ok else "FAIL", "detail": detail, "at": now_iso(),
+                 "elapsed_s": round(time.time() - self.t0, 1)}
+        if shot:
+            p = self.shots / f"{len(self.results) + 1:02d}.png"
+            try:
+                self.win.grab().save(str(p))
+                entry["screenshot"] = str(p)
+            except Exception:  # noqa: BLE001
+                pass
+        self.results.append(entry)
+        self._flush()
+
+    def _flush(self) -> None:
+        data = {"app_version": APP_VERSION, "exe": os.path.abspath(os.sys.executable), "frozen": getattr(os.sys, "frozen", False),
+                "data_root": str(self.ctx.dr.root) if self.ctx.dr else None, "started": self.t0,
+                "results": self.results, "dialogs": self.dialogs,
+                "summary": {"pass": sum(r["result"] == "PASS" for r in self.results),
+                            "fail": sum(r["result"] == "FAIL" for r in self.results)}}
+        self.report_path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+
+    def finish(self) -> None:
+        self._flush()
+        QTimer.singleShot(500, self._close)
+
+    def _close(self) -> None:
+        self.win.close()
+        QTimer.singleShot(3000, self._after_close)
+
+    def _after_close(self) -> None:
+        if self.win.isVisible():
+            self.record("关闭窗口", False, "窗口未关闭", shot=False)
+            QApplication.quit()
+
+    # ------------------------------------------------------------------ 步骤
+    def run_status(self) -> str:
+        r = self.ctx.conn.execute("SELECT status FROM runs ORDER BY created_at DESC LIMIT 1").fetchone()
+        return r[0] if r else ""
+
+    def steps(self):
+        ctx, win = self.ctx, self.win
+        # 1 Dashboard
+        page = win.goto("dashboard")
+        self.record("启动并显示首页 Dashboard", True, f"数据目录 {ctx.dr.root}；integrity={ctx.startup_report.integrity}")
+        yield ("sleep", 1)
+        # 2 导入
+        imp = win.goto("import")
+        imp.mode_ref.setChecked(True)
+        imp.recursive.setChecked(True)
+        imp.register.setChecked(True)
+        imp._submit("FOLDER", [self.corpus], register=True)
+        yield ("wait", lambda: not ctx.imports.busy, 300, "导入完成")
+        imp.refresh()
+        counts = {r[0]: r[1] for r in ctx.conn.execute("SELECT status, COUNT(*) FROM import_items GROUP BY status")}
+        self.record("导入中心：递归导入文件夹（SHA-256 去重）", counts.get("DONE", 0) > 0, json.dumps(counts, ensure_ascii=False))
+        # 3 文档库
+        lib = win.goto("library")
+        n = lib.table.rowCount()
+        self.record("文档库列表", n > 0, f"{n} 个文档")
+        ids = [r[0] for r in ctx.conn.execute("SELECT document_id FROM documents WHERE is_deleted=0")]
+        # 4 开始处理
+        proc = win.goto("processing")
+        rid = win.start_run(ids, "LOCAL_KNOWLEDGE_STANDARD", note="GUI 验收")
+        self.record("处理中心：开始处理（本地知识标准）", bool(rid), str(rid))
+        yield ("wait", lambda: self.run_status() == "RUNNING", 60, "Run 进入 RUNNING")
+        yield ("sleep", 4)
+        # 5 暂停
+        proc.pause()
+        yield ("wait", lambda: self.run_status() == "PAUSED", 300, "Run 进入 PAUSED")
+        before = ctx.runs.progress(rid)["finished"]
+        yield ("sleep", 5)
+        after = ctx.runs.progress(rid)["finished"]
+        proc.refresh()
+        self.record("暂停：不再领取新任务", self.run_status() == "PAUSED" and before == after,
+                    f"暂停期间完成数 {before} → {after}")
+        # 6 继续
+        proc.resume()
+        yield ("wait", lambda: self.run_status() == "RUNNING", 60, "继续后 RUNNING")
+        self.record("继续处理", self.run_status() == "RUNNING", "")
+        yield ("sleep", 3)
+        # 7 安全停止
+        proc.safe_stop()
+        yield ("wait", lambda: self.run_status() == "SAFE_STOPPED" and not ctx.runs.worker_alive(), 600, "安全停止完成")
+        cp = ctx.runs.get_run(rid)["checkpoint"]
+        proc.refresh()
+        self.record("安全停止：当前阶段完成 → Checkpoint → Worker 退出",
+                    self.run_status() == "SAFE_STOPPED" and not ctx.runs.worker_alive() and bool(cp), f"checkpoint={cp}")
+        # 8 从 Checkpoint 继续
+        done_before = ctx.runs.progress(rid)["finished"]
+        proc.continue_checkpoint()
+        yield ("wait", lambda: self.run_status() == "RUNNING", 60, "续跑 RUNNING")
+        yield ("sleep", 6)
+        self.record("继续 Checkpoint 续跑", self.run_status() in ("RUNNING", "COMPLETED"),
+                    f"续跑前已完成 {done_before}；resume_count={ctx.runs.get_run(rid)['resume_count']}")
+        # 9 急停
+        wpid = ctx.runs.get_run(rid)["worker_pid"]
+        win.emergency_stop()
+        yield ("sleep", 2)
+        reps = sorted(ctx.dr.sub("runs").glob("estop-*.json"))
+        rep = json.loads(reps[-1].read_text(encoding="utf-8")) if reps else {}
+        self.record("急停：Worker / Helper / 端口 / 租约 / 数据库校验", bool(rep.get("verified")) and
+                    self.run_status() == "EMERGENCY_STOPPED",
+                    json.dumps({k: rep.get(k) for k in ("duration_ms", "worker_killed", "helpers_killed", "workers_alive",
+                                                        "helpers_alive", "ports_open", "worker_lease_held",
+                                                        "db_integrity_ok", "db_foreign_key_errors", "verified")},
+                               ensure_ascii=False) + f"；原 Worker PID {wpid}")
+        # 10 急停后续跑至完成
+        proc.continue_checkpoint()
+        yield ("wait", lambda: self.run_status() == "COMPLETED", 1800, "急停后续跑完成")
+        p = ctx.runs.progress(rid)
+        self.record("急停后从 Checkpoint 续跑至完成", self.run_status() == "COMPLETED", json.dumps(p["counts"]))
+        # 11 审核
+        ctx.docs.set_governance(ids, "APPROVED")
+        self.record("知识治理：批量批准", True, f"{len(ids)} 个文档", shot=False)
+        # 12 全文搜索
+        sp = win.goto("search")
+        sp.q.setText("范围一")
+        sp.search()
+        html_ = sp.results.toHtml()
+        self.record("全文搜索（FTS5 + 高亮 + 定位）", "命中" in sp.summary.text() and "chunk:" in html_, sp.summary.text())
+        sp.mq.setText("ESG")
+        sp.meta_search()
+        self.record("元数据搜索", sp.mtable.rowCount() > 0, f"{sp.mtable.rowCount()} 条", shot=False)
+        # 13 知识检索
+        sem = win.goto("semantic")
+        sem.q.setText("What share of electricity was renewable in 2025?")
+        sem.search()
+        yield ("wait", lambda: sem.btn.isEnabled(), 300, "知识检索完成")
+        self.record("知识检索（混合 + Reranker，跨语言）", "混合检索" in sem.summary.text(),
+                    sem.summary.text() + " | " + sem.notes.text())
+        # 14 AI 问答
+        qa = win.goto("qa")
+        qa.q.setPlainText("华东制造基地2025年范围一温室气体排放是多少？")
+        qa.ask()
+        yield ("wait", lambda: qa.btn.isEnabled(), 600, "AI 问答完成")
+        ans = qa._current
+        self.record("AI 问答（RAG + Citation）", bool(ans and ans.status in ("ANSWERED", "EVIDENCE_ONLY") and ans.citations),
+                    f"{ans.status if ans else None}：{(ans.answer if ans else '')[:300]}；引用 "
+                    f"{sum(c.cited for c in ans.citations) if ans else 0}/{len(ans.citations) if ans else 0}")
+        qa.q.setPlainText("公司在火星基地有多少名员工？")
+        qa.ask()
+        yield ("wait", lambda: qa.btn.isEnabled(), 600, "无依据问答完成")
+        ans = qa._current
+        self.record("无依据问题：知识库中未找到足够依据", bool(ans and ans.status == "INSUFFICIENT"),
+                    f"{ans.status if ans else None}：{ans.answer if ans else ''}")
+        ctx.ai.release_all()
+        # 15 备份
+        bp = win.goto("backup")
+        n0 = len(ctx.backup.list_backups())
+        bp.backup("FULL")
+        yield ("wait", lambda: len(ctx.backup.list_backups()) > n0, 300, "完整备份")
+        yield ("sleep", 1)
+        bps = ctx.backup.list_backups()
+        self.record("完整备份（Manifest + SHA-256）", len(bps) > n0, bps[0].path if bps else "")
+        # 16 恢复
+        target = bps[0].path
+        docs_before = ctx.conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+        bp._restore(target)
+        yield ("sleep", 1)
+        from esgxk.db.database import check_file
+        chk = check_file(ctx.dr.db_path)
+        docs_after = ctx.conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+        self.record("从备份恢复（自动安全备份 + 校验 + integrity_check）",
+                    chk["integrity_ok"] and chk["foreign_key_errors"] == 0 and docs_before == docs_after,
+                    f"恢复前后文档数 {docs_before}/{docs_after}；{chk}")
+        # 17 日志
+        lp = win.goto("logs")
+        lp.refresh()
+        self.record("日志中心", lp.table.rowCount() > 0, lp.count.text())
+        # 18 AI 资产中心
+        st = win.goto("settings")
+        st.tabs.setCurrentIndex(1)
+        states = {k: v.text() for k, v in st.asset_state.items()}
+        self.record("设置 → AI资产中心", True, json.dumps(states, ensure_ascii=False))
+        # 19 运行控制
+        rp = win.goto("runs")
+        rp.refresh()
+        self.record("运行控制页", rp.t_runs.rowCount() > 0, rp.l["worker"].text().replace("\n", " "))
+        win.goto("dashboard")
+        yield ("sleep", 1)
+        self.record("返回首页（最终状态）", True, "")

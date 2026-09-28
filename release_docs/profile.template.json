@@ -1,0 +1,22 @@
+{
+  "_comment": "ESG-XK 本机 Profile 模板。实际文件位于 %LOCALAPPDATA%\\ESG-XK\\profiles\\default.json，由程序首次运行时生成；此处仅说明字段。",
+  "profile_version": 1,
+  "app_path": "<ESG-XK.exe 所在目录>",
+  "app_version": "1.0.0",
+  "data_root": "<数据目录，例如 D:\\ESG-XK\\jiaofu\\ESG-XK-Data>",
+  "strict_no_fallback": true,
+  "resource_profile": "LOW_MEMORY_16G",
+  "ai_assets": {
+    "llama_server": "<llama-server.exe 路径，可为空>",
+    "embedding_model": "<Embedding GGUF 路径，可为空>",
+    "reranker_model": "<Reranker GGUF 路径，可为空>",
+    "llm_model": "<LLM GGUF 路径，可为空>",
+    "ocr_python": "<含 paddleocr 的 python.exe 路径，可为空>",
+    "ocr_model_root": "<PP-OCR 模型目录（纯 ASCII 路径），可为空>",
+    "model_root": "",
+    "runtime_root": "",
+    "tools_root": "",
+    "gpu_layers": 99
+  },
+  "ai_assets_confirmed": false
+}
