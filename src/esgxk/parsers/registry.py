@@ -36,7 +36,7 @@ def load_verified_bytes(path: str, expected_sha: str) -> bytes:
     return data
 
 
-def parse_bytes(data: bytes, ext: str) -> ParseResult:
+def parse_bytes(data: bytes, ext: str, *, extract_images: bool = True) -> ParseResult:
     ext = ext.lower()
     if len(data) == 0:
         raise EsgError(ErrorCode.PARSE_EMPTY_FILE)
@@ -45,16 +45,16 @@ def parse_bytes(data: bytes, ext: str) -> ParseResult:
         return parse_pdf(data)
     if ext == ".docx":
         from esgxk.parsers.docx_parser import parse_docx
-        return parse_docx(data)
+        return parse_docx(data, extract_images=extract_images)
     if ext == ".xlsx":
         from esgxk.parsers.sheet_parser import parse_xlsx
-        return parse_xlsx(data)
+        return parse_xlsx(data, extract_images=extract_images)
     if ext == ".csv":
         from esgxk.parsers.sheet_parser import parse_csv
         return parse_csv(data)
     if ext == ".pptx":
         from esgxk.parsers.pptx_parser import parse_pptx
-        return parse_pptx(data)
+        return parse_pptx(data, extract_images=extract_images)
     if ext in (".txt", ".md"):
         from esgxk.parsers.text_parser import parse_text
         return parse_text(data, markdown=(ext == ".md"))

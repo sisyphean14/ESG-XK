@@ -22,13 +22,18 @@ if BASE.exists():
 accept_corpus = BASE / "gui_accept"
 for sub in ("zh", "en", "id", "images", "duplicates", "broken"):
     shutil.copytree(CORPUS / sub, accept_corpus / sub)
+shutil.copytree(Path(r"D:\ESG-XK\ceshi\office"), accept_corpus / "office")
+(accept_corpus / "reliability").mkdir(parents=True)
+for n in ("A_正常文档.txt", "B_FAULT_PARSE_HANG.docx", "D_FAULT_OCR_HANG.png"):
+    shutil.copy2(Path(r"D:\ESG-XK\ceshi\reliability") / n, accept_corpus / "reliability" / n)
 for f in sorted(RUNCTL.glob("*.pdf"))[:3]:
     shutil.copy2(f, accept_corpus / "runctl" / f.name) if (accept_corpus / "runctl").exists() else (
         (accept_corpus / "runctl").mkdir(parents=True), shutil.copy2(f, accept_corpus / "runctl" / f.name))
 report = BASE / "gui_acceptance.json"
 env = dict(os.environ)
 env.update({"ESGXK_PROFILE_DIR": str(BASE / "profile"), "ESGXK_DEFAULT_DATA_ROOT": str(BASE / "ESG-XK-Data"),
-            "ESGXK_ACCEPT_CORPUS": str(accept_corpus)})
+            "ESGXK_ACCEPT_CORPUS": str(accept_corpus),
+            "ESGXK_FAULT_INJECT": "parse_hang=B_FAULT_PARSE_HANG;ocr_hang=D_FAULT_OCR_HANG"})
 t0 = time.time()
 proc = subprocess.Popen([str(EXE), "--acceptance", str(report)], env=env)
 print("started pid", proc.pid, flush=True)

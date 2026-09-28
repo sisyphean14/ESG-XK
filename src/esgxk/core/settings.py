@@ -19,7 +19,31 @@ DEFAULTS: dict[str, Any] = {
     "chunk.max_chars": 1100,
     "ocr.low_confidence_threshold": 0.80,
     "import.default_storage_mode": "REFERENCE",
+    # ---- V1.1.0 可靠性：无进展超时（秒）、自动重试、Watchdog ----
+    "timeout.parse_no_progress": 120,
+    "timeout.file_op": 120,
+    "timeout.ocr_unit": 180,
+    "timeout.office_image_ocr": 180,
+    "timeout.embed_batch": 180,
+    "timeout.rerank": 180,
+    "timeout.llm": 300,
+    "timeout.index_commit": 180,
+    "timeout.helper_start": 240,
+    "retry.max_auto": 1,
+    "watchdog.stall_seconds": 900,
+    "watchdog.heartbeat_seconds": 90,
+    "watchdog.safe_stop_grace": 300,
+    "resource.grace_seconds": 60,
+    # ---- Office 内嵌图片 OCR ----
+    "office_ocr.enabled": True,
+    "office_ocr.rotation_retry": True,
 }
+
+
+def timeouts(conn: sqlite3.Connection) -> dict[str, float]:
+    """读取全部超时 / Watchdog 参数（数据库中可覆盖默认值）。"""
+    s = all_settings(conn)
+    return {k: float(v) for k, v in s.items() if k.startswith(("timeout.", "watchdog.", "retry.", "resource."))}
 
 
 def get(conn: sqlite3.Connection, key: str) -> Any:

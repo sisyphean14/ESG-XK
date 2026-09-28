@@ -21,7 +21,7 @@ from esgxk.core.timeutil import now_iso
 CATEGORIES = {
     "app": "运行日志", "error": "错误日志", "tech": "技术日志", "audit": "审计日志",
     "process": "处理日志", "ocr": "OCR日志", "rag": "RAG日志", "migration": "Migration日志",
-    "backup": "Backup日志", "estop": "急停日志", "import": "导入日志", "search": "检索日志",
+    "backup": "Backup日志", "estop": "急停日志", "watchdog": "Watchdog日志", "import": "导入日志", "search": "检索日志",
 }
 
 _LOG_SCHEMA = """

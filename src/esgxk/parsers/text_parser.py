@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 
 from esgxk.core.errors import ErrorCode, EsgError
-from esgxk.parsers.base import ParseResult, SourceUnit, looks_like_heading, heading_level_of
+from esgxk.parsers.base import ParseResult, SourceUnit, heading_level_of, looks_like_heading, report_progress
 
 MAX_PARA_CHARS = 4000
 
@@ -65,6 +65,8 @@ def parse_text(data: bytes, markdown: bool = False) -> ParseResult:
             ))
 
     for i, raw in enumerate(lines, start=1):
+        if i % 5000 == 0:
+            report_progress("解析文本", i, len(lines))
         line = raw.rstrip()
         md = re.match(r"^(#{1,6})\s+(.+)$", line) if markdown else None
         # 纯文本：仅把段首的编号式短行（如“1.2 环境管理”“第三章”）视为标题

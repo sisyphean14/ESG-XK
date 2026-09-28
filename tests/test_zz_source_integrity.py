@@ -6,8 +6,17 @@ from pathlib import Path
 from conftest import CESHI
 
 
+def test_v11_office_and_reliability_sources_unchanged():
+    """V1.1.0：DOCX / PPTX / XLSX / 可靠性语料在全部测试后 size / mtime / SHA-256 不变。"""
+    _check("V11_BASELINE.json")
+
+
 def test_source_files_unchanged():
-    baseline = json.loads((CESHI / "SOURCE_BASELINE.json").read_text(encoding="utf-8"))
+    _check("SOURCE_BASELINE.json")
+
+
+def _check(name: str):
+    baseline = json.loads((CESHI / name).read_text(encoding="utf-8"))
     changed = []
     for path, b in baseline.items():
         p = Path(path)

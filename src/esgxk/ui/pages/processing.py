@@ -10,7 +10,8 @@ from PySide6.QtWidgets import (QButtonGroup, QComboBox, QGridLayout, QLabel, QLi
 
 from esgxk.core.errors import EsgError
 from esgxk.parsers.base import TYPE_LABELS
-from esgxk.processing.pipeline import PIPELINES, RUN_STATUS_LABELS, STAGE_LABELS
+from esgxk.core.errors import FAILURE_KINDS
+from esgxk.processing.pipeline import OFFICE_STAGE_LABELS, PIPELINES, RUN_STATUS_LABELS, STAGE_LABELS
 from esgxk.ui.widgets import (Badge, Card, PageBase, autosize, button, confirm, fill_table, hbox, info, make_table,
                               muted, section_title, selected_keys, show_error)
 
@@ -45,11 +46,12 @@ class ProcessingPage(PageBase):
         self.b_pause = button("❚❚  暂停", "", self.pause, "当前原子阶段完成后暂停，不再领取新任务")
         self.b_resume = button("▶  继续", "", self.resume, "从暂停处继续；若 Worker 已退出，则从 Checkpoint 续跑")
         self.b_stop = button("■  安全停止", "", self.safe_stop, "完成当前原子阶段 → 提交 → 写 Checkpoint → 释放资源 → Worker 退出")
-        self.b_retry = button("↻  重试失败", "", self.retry_failed, "把最近任务中失败的文档重新排队并续跑")
+        self.b_retry = button("↻  重试失败项 ▾", "", self.retry_menu, "人工选择重试范围：全部 / 仅超时 / 仅OCR失败 / 部分成功 / 所选文件")
+        self.b_export = button("⇩  导出失败清单", "", self.export_failures, "导出本次任务的失败 / 超时 / 部分成功明细（CSV）")
         self.b_cp = button("⤓  继续 Checkpoint", "", self.continue_checkpoint, "从最近一次安全停止/急停/中断的 Checkpoint 续跑")
         self.b_estop = button("■  急停", "EStopBig", self.main.emergency_stop, "立即终止所有处理进程；未提交阶段不会写入数据库")
-        ctl.lay.addLayout(hbox(self.b_start, self.b_pause, self.b_resume, self.b_stop, self.b_retry, self.b_cp, None,
-                               self.b_estop))
+        ctl.lay.addLayout(hbox(self.b_start, self.b_pause, self.b_resume, self.b_stop, self.b_retry, self.b_cp,
+                               self.b_export, None, self.b_estop))
         # ---- 状态
         st = QGridLayout()
         st.setHorizontalSpacing(24)
@@ -101,7 +103,8 @@ class ProcessingPage(PageBase):
         split.addWidget(left)
         right = Card()
         right.lay.addWidget(section_title("任务明细"))
-        self.items = make_table(["#", "文档", "状态", "当前阶段", "已完成阶段", "错误"], stretch_col=5)
+        self.items = make_table(["#", "文档", "状态", "当前阶段", "已完成阶段", "失败分类", "重试", "说明"], stretch_col=7,
+                                multi=True)
         right.lay.addWidget(self.items, 1)
         split.addWidget(right)
         split.setSizes([640, 640])
@@ -175,7 +178,8 @@ class ProcessingPage(PageBase):
         resumable = bool(run and not active and run["status"] in ("SAFE_STOPPED", "EMERGENCY_STOPPED", "INTERRUPTED",
                                                                    "CREATED", "FAILED"))
         self.b_cp.setEnabled(resumable)
-        self.b_retry.setEnabled(bool(run and not active and (run["failed"] or 0) > 0))
+        self.b_retry.setEnabled(bool(run and not active and ((run["failed"] or 0) > 0 or (run.get("partial") or 0) > 0)))
+        self.b_export.setEnabled(bool(run and run.get("failure_report")))
         if not run:
             self.l_run.setText("—")
             self.badge.set_status("", "无任务")
@@ -187,16 +191,22 @@ class ProcessingPage(PageBase):
         self.l_run.setText(f"{r['run_id']} · {PIPELINES.get(r['pipeline'], {}).get('label', r['pipeline'])}"
                            + (f" · 已续跑 {r['resume_count']} 次" if r["resume_count"] else ""))
         self.badge.set_status(r["status"])
-        self.l_stage.setText(STAGE_LABELS.get(r["current_stage"] or "", r["current_stage"] or "—")
-                             if r["status"] in ("RUNNING", "PAUSED", "STOP_REQUESTED") else "—")
+        running = r["status"] in ("RUNNING", "PAUSED", "STOP_REQUESTED")
+        stage_lbl = STAGE_LABELS.get(r["current_stage"] or "", r["current_stage"] or "—")
+        if running and (p["current_document"] or "").lower().endswith((".docx", ".pptx", ".xlsx")):
+            stage_lbl = OFFICE_STAGE_LABELS.get(r["current_stage"] or "", stage_lbl)
+        if running and r.get("progress_label"):
+            stage_lbl += f"　·　{r['progress_label']}"
+        self.l_stage.setText(stage_lbl if running else "—")
         self.l_doc.setText(p["current_document"] or "—" if r["status"] in ("RUNNING", "PAUSED", "STOP_REQUESTED") else "—")
         total = max(1, p["total"])
         self.progress.setMaximum(total)
         self.progress.setValue(p["finished"])
         self.progress.setFormat(f"{p['finished']} / {p['total']}")
         c = p["counts"]
-        self.l_counts.setText(f"成功 {c.get('DONE', 0)}　失败 {c.get('FAILED', 0)}　跳过 {c.get('SKIPPED', 0)}　"
-                              f"剩余 {p['remaining']}")
+        self.l_counts.setText(f"总文件 {p['total']}　完成 {c.get('DONE', 0)}　处理中 {c.get('RUNNING', 0)}　"
+                              f"部分成功 {c.get('PARTIAL', 0)}　失败 {c.get('FAILED', 0)}　超时 {c.get('TIMEOUT', 0)}　"
+                              f"跳过 {c.get('SKIPPED', 0)}　剩余 {p['remaining']}")
         self.l_eta.setText(self._eta(r, p))
         cp = r.get("checkpoint")
         if cp:
@@ -212,7 +222,9 @@ class ProcessingPage(PageBase):
         items = self.ctx.runs.items(r["run_id"])
         fill_table(self.items, [[i["seq"], i["file_name"], i["status"],
                                  STAGE_LABELS.get(i["current_stage"] or "", ""),
-                                 STAGE_LABELS.get(i["last_completed_stage"] or "", ""), i["error"] or ""] for i in items],
+                                 STAGE_LABELS.get(i["last_completed_stage"] or "", ""),
+                                 FAILURE_KINDS.get(i["failure_kind"] or "", i["failure_kind"] or ""),
+                                 (i["retry_count"] or 0) + (i["stall_count"] or 0) or "", i["error"] or ""] for i in items],
                    [i["item_id"] for i in items], status_cols=[2])
         autosize(self.items, 260)
 
@@ -269,9 +281,39 @@ class ProcessingPage(PageBase):
     def continue_checkpoint(self) -> None:
         self._run_action(self.ctx.runs.start)
 
-    def retry_failed(self) -> None:
+    def retry_menu(self) -> None:
+        from PySide6.QtGui import QCursor
+        from PySide6.QtWidgets import QMenu
+        m = QMenu(self)
+        for key, lab in self.ctx.runs.RETRY_KINDS.items():
+            m.addAction(f"重试{lab}", lambda k=key: self.retry_failed(k))
+        m.addAction("仅重试任务明细中选中的文件", lambda: self.retry_failed("ALL", selected=True))
+        m.exec(QCursor.pos())
+
+    def retry_failed(self, kinds: str = "ALL", selected: bool = False) -> None:
+        ids = [k for k in selected_keys(self.items) if k] if selected else None
+        if selected and not ids:
+            info(self, "提示", "请先在右侧任务明细中选择要重试的文件")
+            return
+
         def go(run_id: str) -> None:
-            n = self.ctx.runs.retry_failed(run_id)
+            n = self.ctx.runs.retry_failed(run_id, kinds=kinds, item_ids=ids)
             if n:
                 self.ctx.runs.start(run_id)
+            else:
+                info(self, "重试失败项", "没有符合条件的失败项")
         self._run_action(go)
+
+    def export_failures(self) -> None:
+        run = self.focus_run()
+        if not run or not run.get("failure_report"):
+            return
+        import shutil
+        from pathlib import Path
+        from PySide6.QtWidgets import QFileDialog
+        src = Path(run["failure_report"]).with_suffix(".csv")
+        default = str(self.ctx.dr.sub("export") / src.name)
+        path, _ = QFileDialog.getSaveFileName(self, "导出失败清单", default, "CSV (*.csv)")
+        if path:
+            shutil.copyfile(src, path)
+            info(self, "导出完成", path)

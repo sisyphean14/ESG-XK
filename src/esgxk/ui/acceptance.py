@@ -147,6 +147,8 @@ class GuiAcceptance(QObject):
             QApplication.quit()
 
     # ------------------------------------------------------------------ 步骤
+    FINISHED = ("COMPLETED", "COMPLETED_WITH_ERRORS")
+
     def run_status(self) -> str:
         r = self.ctx.conn.execute("SELECT status FROM runs ORDER BY created_at DESC LIMIT 1").fetchone()
         return r[0] if r else ""
@@ -157,6 +159,11 @@ class GuiAcceptance(QObject):
         page = win.goto("dashboard")
         self.record("启动并显示首页 Dashboard", True, f"数据目录 {ctx.dr.root}；integrity={ctx.startup_report.integrity}")
         yield ("sleep", 1)
+        # 可靠性验收参数（仅验收模式）：较短的无进展超时，便于在验收时间内触发真实超时
+        from esgxk.core import settings as S
+        for k, v in {"timeout.parse_no_progress": 10, "timeout.ocr_unit": 30, "timeout.office_image_ocr": 30,
+                     "retry.max_auto": 1}.items():
+            S.set_(ctx.conn, k, v)
         # 2 导入
         imp = win.goto("import")
         imp.mode_ref.setChecked(True)
@@ -220,9 +227,25 @@ class GuiAcceptance(QObject):
                                ensure_ascii=False) + f"；原 Worker PID {wpid}")
         # 10 急停后续跑至完成
         proc.continue_checkpoint()
-        yield ("wait", lambda: self.run_status() == "COMPLETED", 1800, "急停后续跑完成")
+        yield ("wait", lambda: self.run_status() in self.FINISHED and not ctx.runs.worker_alive(), 2400, "急停后续跑完成")
         p = ctx.runs.progress(rid)
-        self.record("急停后从 Checkpoint 续跑至完成", self.run_status() == "COMPLETED", json.dumps(p["counts"]))
+        self.record("急停后从 Checkpoint 续跑至完成（队列全部走完）", self.run_status() in self.FINISHED,
+                    self.run_status() + " " + json.dumps(p["counts"]))
+        # V1.1.0 可靠性：B 解析卡死、D OCR 卡死 → 超时跳过，其余继续
+        its = {i["file_name"]: i for i in ctx.runs.items(rid)}
+        b, d = its.get("B_FAULT_PARSE_HANG.docx"), its.get("D_FAULT_OCR_HANG.png")
+        ok = bool(b and d and b["status"] == "TIMEOUT" and d["status"] == "TIMEOUT"
+                  and its.get("A_正常文档.txt", {}).get("status") == "DONE" and self.run_status() == "COMPLETED_WITH_ERRORS")
+        self.record("可靠性：解析卡死 / OCR 卡死 → 超时自动跳过，队列继续，COMPLETED_WITH_ERRORS", ok,
+                    json.dumps({k: (v["status"], v["error_code"]) for k, v in its.items() if k[:2] in ("A_", "B_", "D_")},
+                               ensure_ascii=False))
+        # V1.1.0 Office 内嵌图片 OCR
+        oi = {r[0]: (r[1], r[2]) for r in ctx.conn.execute(
+            "SELECT office_type, SUM(ocr_status IN ('DONE','LOW_CONFIDENCE')), COUNT(*) FROM office_images o "
+            "JOIN document_versions v ON v.version_id=o.version_id WHERE v.is_current=1 GROUP BY office_type")}
+        self.record("Office 内嵌图片 OCR（DOCX / PPTX / XLSX）",
+                    oi.get("DOCX", (0, 0))[0] >= 14 and oi.get("PPTX", (0, 0))[0] >= 7 and oi.get("XLSX", (0, 0))[0] >= 3,
+                    json.dumps({k: f"OCR成功 {v[0]} / 图片 {v[1]}" for k, v in oi.items()}, ensure_ascii=False))
         # 11 审核
         ctx.docs.set_governance(ids, "APPROVED")
         self.record("知识治理：批量批准", True, f"{len(ids)} 个文档", shot=False)
@@ -232,6 +255,11 @@ class GuiAcceptance(QObject):
         sp.search()
         html_ = sp.results.toHtml()
         self.record("全文搜索（FTS5 + 高亮 + 定位）", "命中" in sp.summary.text() and "chunk:" in html_, sp.summary.text())
+        sp.q.setText("ESG-XK-OCR-UNIQUE-TEST")
+        sp.search()
+        h2 = sp.results.toHtml()
+        self.record("全文搜索命中 DOCX 内嵌图片（正文无该关键词）", "职业安全环境手册" in h2 and "内嵌图片OCR" in h2,
+                    sp.summary.text())
         sp.mq.setText("ESG")
         sp.meta_search()
         self.record("元数据搜索", sp.mtable.rowCount() > 0, f"{sp.mtable.rowCount()} 条", shot=False)
@@ -242,8 +270,24 @@ class GuiAcceptance(QObject):
         yield ("wait", lambda: sem.btn.isEnabled(), 300, "知识检索完成")
         self.record("知识检索（混合 + Reranker，跨语言）", "混合检索" in sem.summary.text(),
                     sem.summary.text() + " | " + sem.notes.text())
+        sem.q.setText("外购商品带来的范围三排放是多少")
+        sem.mode.setCurrentIndex(sem.mode.findData("vector"))
+        sem.search()
+        yield ("wait", lambda: sem.btn.isEnabled(), 300, "向量检索完成")
+        vh = sem.results.toHtml()
+        self.record("向量检索命中 Office 内嵌图片 OCR", "内嵌图片OCR" in vh and "45,600" in vh, sem.summary.text())
+        sem.mode.setCurrentIndex(sem.mode.findData("hybrid"))
         # 14 AI 问答
         qa = win.goto("qa")
+        qa.q.setPlainText("哪个文件包含 ESG-XK-OCR-UNIQUE-TEST？")
+        qa.ask()
+        yield ("wait", lambda: qa.btn.isEnabled(), 600, "Office 图片 RAG 完成")
+        ans = qa._current
+        cited = [c for c in (ans.citations if ans else []) if c.cited]
+        self.record("RAG 引用 Office 内嵌图片（文档 / 章节 / 内嵌图片序号）",
+                    any(c.source_type == "OFFICE_IMAGE_OCR" and "内嵌图片" in c.locator_label for c in cited),
+                    f"{ans.status if ans else None}：{(ans.answer if ans else '')[:160]}；" +
+                    "；".join(f"{c.document_title} {c.locator_label} [{c.source_label}]" for c in cited[:3]))
         qa.q.setPlainText("华东制造基地2025年范围一温室气体排放是多少？")
         qa.ask()
         yield ("wait", lambda: qa.btn.isEnabled(), 600, "AI 问答完成")
@@ -277,6 +321,20 @@ class GuiAcceptance(QObject):
         self.record("从备份恢复（自动安全备份 + 校验 + integrity_check）",
                     chk["integrity_ok"] and chk["foreign_key_errors"] == 0 and docs_before == docs_after,
                     f"恢复前后文档数 {docs_before}/{docs_after}；{chk}")
+        # 文档详情：内嵌图片页签
+        did = ctx.conn.execute("SELECT d.document_id FROM documents d JOIN document_versions v ON "
+                               "v.version_id=d.current_version_id WHERE v.file_name LIKE '职业安全环境手册%'").fetchone()
+        if did:
+            from esgxk.ui.dialogs.document_detail import DocumentDetailDialog
+            dd = DocumentDetailDialog(win, did[0])
+            dd.tabs.setCurrentIndex(3)
+            dd.show()
+            yield ("sleep", 1)
+            p = self.shots / f"{len(self.results) + 1:02d}-detail.png"
+            dd.grab().save(str(p))
+            self.record("文档详情：Office OCR 摘要与内嵌图片列表", dd.t_images.rowCount() == 19 and "内嵌图片：19" in
+                        dd.office_line.text(), dd.office_line.text(), shot=False)
+            dd.close()
         # 17 日志
         lp = win.goto("logs")
         lp.refresh()

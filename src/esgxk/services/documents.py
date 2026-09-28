@@ -102,6 +102,28 @@ class DocumentService:
         return [dict(r) for r in self.conn.execute(
             "SELECT * FROM source_units WHERE version_id=? ORDER BY unit_index LIMIT ?", (version_id, limit))]
 
+    def office_images(self, version_id: int) -> list[dict]:
+        return [dict(r) for r in self.conn.execute(
+            "SELECT * FROM office_images WHERE version_id=? ORDER BY image_index", (version_id,))]
+
+    def office_summary(self, version_id: int) -> dict:
+        """文档详情中的 Office OCR 摘要：正文提取 / 内嵌图片数 / OCR 成功 / 低置信度 / 失败 / 过滤 / 缓存复用。"""
+        v = self.version(version_id) or {}
+        rows = {r[0]: r[1] for r in self.conn.execute(
+            "SELECT ocr_status, COUNT(*) FROM office_images WHERE version_id=? GROUP BY ocr_status", (version_id,))}
+        cache = self.conn.execute("SELECT COUNT(*) FROM office_images WHERE version_id=? AND cache_hit=1",
+                                  (version_id,)).fetchone()[0]
+        return {
+            "body_extract": "PASS" if v.get("parse_status") == "DONE" else (v.get("parse_status") or "-"),
+            "images": sum(rows.values()),
+            "ocr_ok": rows.get("DONE", 0),
+            "low_confidence": rows.get("LOW_CONFIDENCE", 0),
+            "failed": rows.get("FAILED", 0) + rows.get("TIMEOUT", 0),
+            "skipped": rows.get("SKIPPED", 0),
+            "pending": rows.get("PENDING", 0) + rows.get("ASSET_UNAVAILABLE", 0) + rows.get("RESOURCE_DENIED", 0),
+            "cache_hits": cache,
+        }
+
     def chunk(self, chunk_id: int) -> dict | None:
         r = self.conn.execute(
             "SELECT c.*, d.title, v.version_no, v.file_name, v.abs_path, v.is_current FROM chunks c "

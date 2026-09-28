@@ -11,7 +11,9 @@ datas += collect_data_files("pypdfium2_raw") + collect_data_files("pypdfium2")
 datas += collect_data_files("docx") + collect_data_files("pptx")
 binaries = collect_dynamic_libs("pypdfium2_raw") + collect_dynamic_libs("faiss")
 
-hidden = ["esgxk.processing.worker", "esgxk.ui.app", "esgxk.ui.acceptance", "faiss", "pypdfium2", "pypdfium2_raw",
+hidden = ["esgxk.processing.worker", "esgxk.processing.parse_helper", "esgxk.parsers.office_images",
+          "esgxk.parsers.docx_parser", "esgxk.parsers.pptx_parser", "esgxk.parsers.sheet_parser", "esgxk.parsers.pdf_parser",
+          "esgxk.parsers.text_parser", "esgxk.parsers.image_parser", "esgxk.core.faults", "esgxk.db.schema_v2", "esgxk.ui.app", "esgxk.ui.acceptance", "faiss", "pypdfium2", "pypdfium2_raw",
           "openpyxl", "docx", "pptx", "PIL.Image", "psutil", "numpy", "PySide6.QtSvg"]
 for sub in ("dashboard", "library", "import_page", "processing", "search_page", "semantic_page", "qa_page",
             "knowledge_page", "runs_page", "backup_page", "logs_page", "settings_page"):

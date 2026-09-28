@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QCheckBox, QComboBox, QLabel, QLineEdit, QTextBrow
 from esgxk.core.langdetect import LANG_NAMES
 from esgxk.index import textnorm
 from esgxk.retrieval.rag import translate_query
-from esgxk.ui.pages.search_page import FilterBar, highlight_html
+from esgxk.ui.pages.search_page import FilterBar, highlight_html, source_badge
 from esgxk.ui.theme import C
 from esgxk.ui.widgets import Card, PageBase, button, hbox, run_task, show_error
 
@@ -114,7 +114,8 @@ class SemanticPage(PageBase):
                 f"<a href='chunk:{h.chunk_id}' style='font-size:14px; font-weight:700; color:{C['accent']}; "
                 f"text-decoration:none;'>{html.escape(h.title)}</a>"
                 f"<span style='color:{C['muted']};'>　v{h.version_no} · {html.escape(h.locator_label)} · "
-                f"{LANG_NAMES.get(h.language or '', '')}{'（跨语言命中）' if cross else ''}</span><br/>"
+                f"{LANG_NAMES.get(h.language or '', '')}{'（跨语言命中）' if cross else ''}</span>"
+                f"{source_badge(h.source_type, h.confidence)}<br/>"
                 f"<span>{highlight_html(snip, spans)}</span><br/>"
                 f"<span style='color:{C['muted']}; font-size:12px;'>{' · '.join(scores)}</span></div>")
         self.results.setHtml("".join(parts) or f"<p style='color:{C['muted']}'>没有检索到相关内容。</p>")

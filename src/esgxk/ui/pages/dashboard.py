@@ -88,7 +88,7 @@ class DashboardPage(PageBase):
         for key, card in self.cards.items():
             card.set(human_size(s[key]) if key == "db_size" else s[key])
         self.cards["succeeded"].label.setText(f"处理成功（部分完成 {s['partial']}）")
-        self.cards["ocr"].label.setText(f"OCR 数量（低置信度 {s['ocr_low']}）")
+        self.cards["ocr"].label.setText(f"OCR 数量（内嵌图片 {s['office_ocr']}/{s['office_images']}，低置信度 {s['ocr_low']}）")
         self.cards["valid"].label.setText(f"有效文档（已批准 {s['approved']}）")
         caps = ai_assets.capability_state(ctx.profile.ai_assets)
         self.info_labels["data_root"].setText(f"{ctx.dr.root}\nSchema v{SCHEMA_VERSION} · 数据库 "

@@ -25,6 +25,10 @@ def dashboard(conn: sqlite3.Connection, db_path: str) -> dict:
         "missing": one("SELECT COUNT(*) FROM documents WHERE is_deleted=0 AND file_state='MISSING'"),
         "ocr": one("SELECT COUNT(*) FROM ocr_results WHERE is_current=1 AND status<>'FAILED'"),
         "ocr_low": one("SELECT COUNT(*) FROM ocr_results WHERE is_current=1 AND status='LOW_CONFIDENCE'"),
+        "office_images": one("SELECT COUNT(*) FROM office_images o JOIN document_versions v ON "
+                             "v.version_id=o.version_id WHERE v.is_current=1"),
+        "office_ocr": one("SELECT COUNT(*) FROM office_images o JOIN document_versions v ON v.version_id=o.version_id "
+                          "WHERE v.is_current=1 AND o.ocr_status IN ('DONE','LOW_CONFIDENCE')"),
         "chunks": one("SELECT COUNT(*) FROM chunks"),
         "fts": one("SELECT COUNT(*) FROM chunks_fts"),
         "vectors": one("SELECT COUNT(*) FROM chunk_embeddings"),

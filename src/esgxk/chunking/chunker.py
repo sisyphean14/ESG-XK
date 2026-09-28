@@ -45,6 +45,8 @@ class ChunkDraft:
     language: str | None = None
     char_count: int = 0
     token_estimate: int = 0
+    source_type: str = "BODY"        # BODY / TABLE / NOTES / SCANNED_OCR / IMAGE_OCR / OFFICE_IMAGE_OCR
+    confidence: float | None = None  # OCR 置信度（OCR 来源的 Chunk）
 
 
 @dataclass
@@ -111,9 +113,11 @@ def _make(parts: list[str], units: list[dict], heading: str | None, chunk_type: 
         loc["page"] = min(pages)
         if max(pages) != min(pages):
             loc["page_end"] = max(pages)
-    for key in ("sheet", "slide", "table", "part", "frame"):
+    for key in ("sheet", "slide", "table", "part", "frame", "image", "anchor", "shape_id"):
         if loc_first.get(key) is not None:
             loc[key] = loc_first[key]
+    if any((u.get("locator_obj") or {}).get("low_confidence") for u in units):
+        loc["low_confidence"] = True
     rs = [u.get("row_start") for u in units if u.get("row_start") is not None]
     re_ = [u.get("row_end") for u in units if u.get("row_end") is not None]
     if rs:
@@ -133,7 +137,22 @@ def _make(parts: list[str], units: list[dict], heading: str | None, chunk_type: 
         loc["heading"] = heading
     if any((u.get("locator_obj") or {}).get("ocr") for u in units):
         loc["ocr"] = True
+    utypes = {u.get("unit_type") for u in units}
+    if chunk_type == "IMAGE_OCR":
+        source_type = "OFFICE_IMAGE_OCR"
+    elif chunk_type == "TABLE":
+        source_type = "TABLE"
+    elif chunk_type == "NOTES":
+        source_type = "NOTES"
+    elif "page_image" in utypes:
+        source_type = "SCANNED_OCR"
+    elif "image" in utypes:
+        source_type = "IMAGE_OCR"
+    else:
+        source_type = "BODY"
+    confs = [u.get("ocr_confidence") for u in units if u.get("ocr_confidence") is not None]
     return ChunkDraft(
+        source_type=source_type, confidence=(min(confs) if confs else None),
         text=text, source_unit_id=first.get("unit_id"), locator=loc, chunk_type=chunk_type,
         page=loc.get("page"), page_end=loc.get("page_end"), sheet=loc.get("sheet"), row_start=loc.get("row_start"),
         row_end=loc.get("row_end"), slide=loc.get("slide"), heading=heading,
@@ -166,12 +185,18 @@ def chunk_units(units: list[dict], target_chars: int = 700, max_chars: int = 110
             flush()
             heading = text or heading
             continue
-        if u.get("heading_path") and utype not in ("heading",):
+        if u.get("heading_path") and utype not in ("heading", "office_image"):
             hp = u["heading_path"].split(" > ")[-1]
             if hp != heading:
                 flush()
                 heading = hp
         if not text:
+            continue
+        if utype == "office_image":
+            # Office 内嵌图片 OCR：独立成块，保留图片定位，不与正文混合
+            flush()
+            for piece in _split_long(text.replace("\n", " ") if len(text) > max_chars else text, max_chars):
+                chunks.append(_make([piece], [u], (u.get("locator_obj") or {}).get("heading"), chunk_type="IMAGE_OCR"))
             continue
         if utype in STANDALONE_TYPES:
             flush()

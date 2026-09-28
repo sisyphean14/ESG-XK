@@ -140,7 +140,7 @@ def fts_search(conn: sqlite3.Connection, query: str, filters: SearchFilters | No
         return []
     fsql, fargs = filter_sql(filters)
     sql = ("SELECT c.chunk_id, c.document_id, c.version_id, c.source_unit_id, c.text, c.locator, c.page, c.sheet,"
-           " c.slide, c.heading, c.language, c.chunk_type, d.title, d.governance_status, d.is_valid, v.version_no,"
+           " c.slide, c.heading, c.language, c.chunk_type, c.source_type, c.confidence, d.title, d.governance_status, d.is_valid, v.version_no,"
            " v.file_name, v.ext, v.is_current, bm25(chunks_fts, 5.0, 1.0, 2.0) AS score"
            " FROM chunks_fts JOIN chunks c ON c.chunk_id=chunks_fts.rowid"
            " JOIN documents d ON d.document_id=c.document_id JOIN document_versions v ON v.version_id=c.version_id"

@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 import sqlite3
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -17,11 +19,33 @@ from typing import Callable
 import numpy as np
 
 from esgxk.ai import helpers
-from esgxk.core import procutil
+from esgxk.core import faults, procutil
 from esgxk.core.errors import ErrorCode, EsgError
 from esgxk.core.logs import elog
 
 MODES = {"EMBED": "Embedding", "RERANK": "Reranker", "LLM": "本地LLM"}
+_BLACK_HOLE: dict = {}
+
+
+def _black_hole_port() -> int:
+    """故障注入专用：接受连接但永不响应的本地端点（验证调用超时路径）。"""
+    if "port" not in _BLACK_HOLE:
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(16)
+        conns: list = []
+
+        def loop() -> None:
+            while True:
+                try:
+                    c, _ = srv.accept()
+                    conns.append(c)
+                except OSError:
+                    return
+
+        threading.Thread(target=loop, daemon=True).start()
+        _BLACK_HOLE.update(port=srv.getsockname()[1], srv=srv, conns=conns)
+    return _BLACK_HOLE["port"]
 QUERY_INSTRUCTION = "Instruct: Given a question, retrieve relevant passages from ESG documents that answer the question\nQuery: "
 
 
@@ -135,10 +159,13 @@ class LlamaHelper:
             self._log_fh = None
 
     # ------------------------------------------------------------------ 调用
-    def _post(self, path: str, body: dict, timeout: float = 600) -> dict:
+    def _post(self, path: str, body: dict, timeout: float = 600, fault_name: str | None = None) -> dict:
         if not self.running:
             raise EsgError(ErrorCode.ASSET_HELPER_CRASHED, f"{MODES[self.mode]} helper 未运行")
-        req = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}", data=json.dumps(body).encode("utf-8"),
+        port = self.port
+        if self.mode == "EMBED" and faults.active("embed_hang", fault_name):
+            port = _black_hole_port()       # 仅故障注入测试：请求发往永不响应的端点
+        req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=json.dumps(body).encode("utf-8"),
                                      headers={"Content-Type": "application/json"})
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -146,35 +173,43 @@ class LlamaHelper:
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")[:300]
             raise EsgError(ErrorCode.ASSET_HELPER_CRASHED, f"HTTP {exc.code}: {detail}") from exc
+        except (TimeoutError, socket.timeout) as exc:
+            code = ErrorCode.VECTOR_EMBED_TIMEOUT if self.mode == "EMBED" else ErrorCode.ASSET_HELPER_CRASHED
+            raise EsgError(code, f"{MODES[self.mode]} 连续 {int(timeout)} 秒无响应") from exc
         except (urllib.error.URLError, OSError, ValueError) as exc:
+            if isinstance(getattr(exc, "reason", None), (TimeoutError, socket.timeout)):
+                code = ErrorCode.VECTOR_EMBED_TIMEOUT if self.mode == "EMBED" else ErrorCode.ASSET_HELPER_CRASHED
+                raise EsgError(code, f"{MODES[self.mode]} 连续 {int(timeout)} 秒无响应") from exc
             if not self.running:
                 raise EsgError(ErrorCode.ASSET_HELPER_CRASHED, f"{MODES[self.mode]} helper 已退出") from exc
             raise EsgError(ErrorCode.ASSET_HELPER_CRASHED, str(exc)) from exc
 
-    def embed(self, texts: list[str], *, query: bool = False) -> np.ndarray:
+    def embed(self, texts: list[str], *, query: bool = False, timeout: float = 180.0,
+              fault_name: str | None = None) -> np.ndarray:
         inputs = [(QUERY_INSTRUCTION + t) if query else t for t in texts]
         inputs = [t[:6000] if t else " " for t in inputs]
-        data = self._post("/v1/embeddings", {"input": inputs})
+        data = self._post("/v1/embeddings", {"input": inputs}, timeout=timeout, fault_name=fault_name)
         rows = sorted(data["data"], key=lambda d: d["index"])
         arr = np.asarray([r["embedding"] for r in rows], dtype=np.float32)
         norms = np.linalg.norm(arr, axis=1, keepdims=True)
         norms[norms == 0] = 1.0
         return arr / norms
 
-    def rerank(self, query: str, documents: list[str]) -> list[float]:
+    def rerank(self, query: str, documents: list[str], *, timeout: float = 180.0) -> list[float]:
         if not documents:
             return []
         data = self._post("/v1/rerank", {"query": query, "documents": [d[:4000] for d in documents],
-                                         "top_n": len(documents)})
+                                         "top_n": len(documents)}, timeout=timeout)
         scores = [0.0] * len(documents)
         for r in data.get("results", []):
             scores[int(r["index"])] = float(r.get("relevance_score", 0.0))
         return scores
 
-    def chat(self, messages: list[dict], *, max_tokens: int = 900, temperature: float = 0.1) -> str:
+    def chat(self, messages: list[dict], *, max_tokens: int = 900, temperature: float = 0.1,
+             timeout: float = 300.0) -> str:
         data = self._post("/v1/chat/completions", {
             "messages": messages, "max_tokens": max_tokens, "temperature": temperature, "top_p": 0.9,
             "chat_template_kwargs": {"enable_thinking": False},
-        })
+        }, timeout=timeout)
         msg = data["choices"][0]["message"]
         return (msg.get("content") or "").strip()

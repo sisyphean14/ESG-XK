@@ -17,6 +17,8 @@ from esgxk.index.vector_store import VectorStore
 from esgxk.parsers.base import locator_text
 
 RRF_K = 60
+LOW_CONF = 0.80
+LOW_CONF_PENALTY = 0.6   # 低置信度 OCR 证据降权
 
 
 @dataclass
@@ -37,6 +39,8 @@ class Hit:
     language: str | None
     text: str
     governance_status: str = ""
+    source_type: str = "BODY"
+    confidence: float | None = None
     fts_rank: int | None = None
     vector_score: float | None = None
     rrf: float = 0.0
@@ -45,6 +49,15 @@ class Hit:
     @property
     def locator_label(self) -> str:
         return locator_text(self.locator)
+
+    @property
+    def low_confidence(self) -> bool:
+        return self.confidence is not None and self.confidence < LOW_CONF
+
+    @property
+    def source_label(self) -> str:
+        from esgxk.processing.pipeline import SOURCE_TYPE_LABELS
+        return SOURCE_TYPE_LABELS.get(self.source_type, self.source_type)
 
     @property
     def score(self) -> float:
@@ -70,7 +83,8 @@ def normalize_query(q: str) -> str:
 
 
 _HIT_SQL = ("SELECT c.chunk_id, c.document_id, c.version_id, c.source_unit_id, c.text, c.locator, c.page, c.sheet,"
-            " c.slide, c.heading, c.language, d.title, d.governance_status, v.version_no, v.file_name, v.is_current"
+            " c.slide, c.heading, c.language, c.source_type, c.confidence, d.title, d.governance_status, v.version_no,"
+            " v.file_name, v.is_current"
             " FROM chunks c JOIN documents d ON d.document_id=c.document_id"
             " JOIN document_versions v ON v.version_id=c.version_id WHERE c.chunk_id IN ({ids})")
 
@@ -80,7 +94,8 @@ def _row_to_hit(r: dict) -> Hit:
                source_unit_id=r["source_unit_id"], title=r["title"], file_name=r["file_name"],
                version_no=r["version_no"], is_current=r["is_current"], locator=r["locator"], page=r["page"],
                sheet=r["sheet"], slide=r["slide"], heading=r["heading"], language=r["language"], text=r["text"],
-               governance_status=r.get("governance_status", ""))
+               governance_status=r.get("governance_status", ""), source_type=r.get("source_type") or "BODY",
+               confidence=r.get("confidence"))
 
 
 class Retriever:
@@ -166,7 +181,7 @@ class Retriever:
         for rank, (cid, s) in enumerate(vec or [], start=1):
             vec_score[cid] = s
             scores[cid] = scores.get(cid, 0) + 1.0 / (RRF_K + rank)
-        ranked = sorted(scores.items(), key=lambda kv: -kv[1])[:candidates]
+        ranked = sorted(scores.items(), key=lambda kv: -kv[1])[:candidates * 2]
         if not ranked:
             res.timings["total_ms"] = int((time.time() - t0) * 1000)
             return res
@@ -180,7 +195,11 @@ class Retriever:
             h.rrf = s
             h.fts_rank = fts_rank.get(cid)
             h.vector_score = vec_score.get(cid)
+            if h.low_confidence:
+                h.rrf *= LOW_CONF_PENALTY
             hits.append(h)
+        hits.sort(key=lambda x: -x.rrf)
+        hits = hits[:candidates]
         # Reranker
         if rerank and self.ai is not None and hits:
             cap = self.ai.capability("reranker")
@@ -190,7 +209,7 @@ class Retriever:
                     helper = self.ai.get("RERANK")
                     rs = helper.rerank(nq, [h.text for h in hits])
                     for h, s in zip(hits, rs):
-                        h.rerank_score = s
+                        h.rerank_score = s * (LOW_CONF_PENALTY if h.low_confidence else 1.0)
                     hits.sort(key=lambda h: -(h.rerank_score or 0))
                     res.reranked = True
                 except EsgError as exc:

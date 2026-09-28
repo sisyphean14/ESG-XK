@@ -1,0 +1,165 @@
+"""Schema V2（ESG-XK V1.1.0）：Office 内嵌图片 OCR、OCR 缓存、Chunk 来源类型、可靠性（超时 / Watchdog / 部分成功）。
+
+在 V1 基础上扩展，不建立平行体系：
+- Office 内嵌图片 = source_units（unit_type='office_image'）+ office_images（每个出现位置一行，保存容器定位细节）；
+- OCR 结果仍写入 ocr_results；同一图片 SHA-256 的识别结果写入 ocr_cache 复用；
+- runs / run_items 按 SQLite 官方“重建表”流程扩展状态 CHECK 约束（需在 foreign_keys=OFF 下执行，提交前做 foreign_key_check）。
+"""
+
+STATEMENTS: list[str] = [
+    # ---------- Office 内嵌图片出现位置 ----------
+    """CREATE TABLE office_images (
+        office_image_id INTEGER PRIMARY KEY,
+        document_id INTEGER NOT NULL REFERENCES documents(document_id) ON DELETE CASCADE,
+        version_id INTEGER NOT NULL REFERENCES document_versions(version_id) ON DELETE CASCADE,
+        source_unit_id INTEGER REFERENCES source_units(unit_id) ON DELETE SET NULL,
+        office_type TEXT NOT NULL CHECK (office_type IN ('DOCX','PPTX','XLSX')),
+        image_index INTEGER NOT NULL,
+        container_locator TEXT NOT NULL,
+        slide_number INTEGER,
+        sheet_name TEXT,
+        anchor_cell TEXT,
+        paragraph_index INTEGER,
+        heading TEXT,
+        context_before TEXT,
+        context_after TEXT,
+        relationship_id TEXT,
+        shape_id TEXT,
+        shape_name TEXT,
+        part_name TEXT NOT NULL,
+        image_hash TEXT NOT NULL,
+        mime_type TEXT,
+        width INTEGER,
+        height INTEGER,
+        bbox_x INTEGER,
+        bbox_y INTEGER,
+        bbox_w INTEGER,
+        bbox_h INTEGER,
+        rotation REAL,
+        ocr_status TEXT NOT NULL DEFAULT 'PENDING',
+        skip_reason TEXT,
+        ocr_language TEXT,
+        ocr_engine TEXT,
+        ocr_confidence REAL,
+        ocr_text TEXT,
+        cache_hit INTEGER NOT NULL DEFAULT 0,
+        processed_run_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT
+    )""",
+    "CREATE INDEX ix_office_images_ver ON office_images(version_id, image_index)",
+    "CREATE INDEX ix_office_images_hash ON office_images(image_hash)",
+    "CREATE INDEX ix_office_images_unit ON office_images(source_unit_id)",
+    # ---------- OCR 缓存（image SHA-256 + 引擎键）----------
+    """CREATE TABLE ocr_cache (
+        image_hash TEXT NOT NULL,
+        engine_key TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('DONE','LOW_CONFIDENCE')),
+        text TEXT NOT NULL,
+        confidence REAL,
+        lines_json TEXT,
+        rotation INTEGER NOT NULL DEFAULT 0,
+        width INTEGER,
+        height INTEGER,
+        engine TEXT NOT NULL,
+        engine_version TEXT,
+        hit_count INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        last_used_at TEXT,
+        PRIMARY KEY (image_hash, engine_key)
+    )""",
+    # ---------- 现有表扩展 ----------
+    "ALTER TABLE chunks ADD COLUMN source_type TEXT NOT NULL DEFAULT 'BODY'",
+    "ALTER TABLE chunks ADD COLUMN confidence REAL",
+    "ALTER TABLE source_units ADD COLUMN ocr_attempts INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE source_units ADD COLUMN image_hash TEXT",
+    "ALTER TABLE ocr_results ADD COLUMN cache_hit INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE ocr_results ADD COLUMN rotation INTEGER",
+    "ALTER TABLE qa_citations ADD COLUMN source_type TEXT",
+    "ALTER TABLE qa_citations ADD COLUMN low_confidence INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE document_versions ADD COLUMN office_image_count INTEGER NOT NULL DEFAULT 0",
+    # 回填历史 Chunk 的来源类型
+    """UPDATE chunks SET source_type = CASE
+        WHEN chunk_type = 'TABLE' THEN 'TABLE'
+        WHEN chunk_type = 'NOTES' THEN 'NOTES'
+        WHEN source_unit_id IN (SELECT unit_id FROM source_units WHERE unit_type = 'page_image') THEN 'SCANNED_OCR'
+        WHEN source_unit_id IN (SELECT unit_id FROM source_units WHERE unit_type = 'image') THEN 'IMAGE_OCR'
+        ELSE 'BODY' END""",
+    # ---------- runs 重建（新增状态与进度 / Watchdog 字段）----------
+    """CREATE TABLE runs_v2 (
+        run_id TEXT PRIMARY KEY,
+        pipeline TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('CREATED','RUNNING','PAUSED','STOP_REQUESTED','SAFE_STOPPED',
+            'EMERGENCY_STOPPED','COMPLETED','COMPLETED_WITH_ERRORS','FAILED','INTERRUPTED')),
+        control_request TEXT NOT NULL DEFAULT 'NONE' CHECK (control_request IN ('NONE','PAUSE','STOP')),
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        ended_at TEXT,
+        current_stage TEXT,
+        current_document_id INTEGER,
+        current_item_id INTEGER,
+        total INTEGER NOT NULL DEFAULT 0,
+        succeeded INTEGER NOT NULL DEFAULT 0,
+        failed INTEGER NOT NULL DEFAULT 0,
+        skipped INTEGER NOT NULL DEFAULT 0,
+        options TEXT NOT NULL DEFAULT '{}',
+        checkpoint TEXT,
+        last_error_code TEXT,
+        last_error TEXT,
+        resource_info TEXT,
+        worker_pid INTEGER,
+        worker_create_time REAL,
+        heartbeat_at TEXT,
+        resume_count INTEGER NOT NULL DEFAULT 0,
+        note TEXT,
+        progress_label TEXT,
+        progress_current INTEGER,
+        progress_total INTEGER,
+        last_progress_at TEXT,
+        partial INTEGER NOT NULL DEFAULT 0,
+        timed_out INTEGER NOT NULL DEFAULT 0,
+        stall_restarts INTEGER NOT NULL DEFAULT 0,
+        failure_report TEXT
+    )""",
+    """INSERT INTO runs_v2(run_id,pipeline,status,control_request,created_at,started_at,ended_at,current_stage,
+        current_document_id,current_item_id,total,succeeded,failed,skipped,options,checkpoint,last_error_code,last_error,
+        resource_info,worker_pid,worker_create_time,heartbeat_at,resume_count,note)
+       SELECT run_id,pipeline,status,control_request,created_at,started_at,ended_at,current_stage,current_document_id,
+        current_item_id,total,succeeded,failed,skipped,options,checkpoint,last_error_code,last_error,resource_info,
+        worker_pid,worker_create_time,heartbeat_at,resume_count,note FROM runs""",
+    "DROP TABLE runs",
+    "ALTER TABLE runs_v2 RENAME TO runs",
+    "CREATE INDEX ix_runs_status ON runs(status)",
+    # ---------- run_items 重建 ----------
+    """CREATE TABLE run_items_v2 (
+        item_id INTEGER PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+        seq INTEGER NOT NULL,
+        document_id INTEGER NOT NULL REFERENCES documents(document_id) ON DELETE CASCADE,
+        version_id INTEGER NOT NULL REFERENCES document_versions(version_id) ON DELETE CASCADE,
+        stages TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'PENDING'
+            CHECK (status IN ('PENDING','RUNNING','DONE','PARTIAL','FAILED','TIMEOUT','SKIPPED')),
+        last_completed_stage TEXT,
+        current_stage TEXT,
+        error_code TEXT,
+        error TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        started_at TEXT,
+        ended_at TEXT,
+        failure_kind TEXT,
+        failed_stage TEXT,
+        failed_units TEXT,
+        stall_count INTEGER NOT NULL DEFAULT 0,
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        last_progress_at TEXT,
+        UNIQUE (run_id, seq)
+    )""",
+    """INSERT INTO run_items_v2(item_id,run_id,seq,document_id,version_id,stages,status,last_completed_stage,current_stage,
+        error_code,error,attempts,started_at,ended_at)
+       SELECT item_id,run_id,seq,document_id,version_id,stages,status,last_completed_stage,current_stage,error_code,
+        error,attempts,started_at,ended_at FROM run_items""",
+    "DROP TABLE run_items",
+    "ALTER TABLE run_items_v2 RENAME TO run_items",
+    "CREATE INDEX ix_run_items ON run_items(run_id, status)",
+]

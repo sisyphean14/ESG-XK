@@ -22,6 +22,18 @@ GOV_CHOICES = [("", "全部审核状态"), ("APPROVED", "仅已批准"), ("PENDI
                ("EXPIRED", "已失效")]
 
 
+def source_badge(source_type: str | None, confidence: float | None = None) -> str:
+    """命中来源标签：正文 / 表格 / 扫描页OCR / 图片OCR / 内嵌图片OCR；低置信度 OCR 额外提示。"""
+    from esgxk.processing.pipeline import SOURCE_TYPE_LABELS
+    st = source_type or "BODY"
+    color = C["info"] if st in ("OFFICE_IMAGE_OCR", "SCANNED_OCR", "IMAGE_OCR") else C["muted"]
+    html_ = (f" <span style='color:{color}; background:{C['info_soft'] if color == C['info'] else '#EEF1F4'};"
+             f" font-weight:600;'>&nbsp;命中来源：{SOURCE_TYPE_LABELS.get(st, st)}&nbsp;</span>")
+    if confidence is not None and confidence < 0.8:
+        html_ += f" <span style='color:{C['warn']}; font-weight:600;'>（OCR低置信度 {confidence:.2f}，仅供参考）</span>"
+    return html_
+
+
 def highlight_html(snippet: str, spans: list[tuple[int, int]]) -> str:
     out, pos = [], 0
     for s, e in spans:
@@ -174,6 +186,7 @@ class SearchPage(PageBase):
             if r["governance_status"] != "APPROVED":
                 flags.append({"DRAFT": "草稿", "PENDING_REVIEW": "待审核", "EXPIRED": "已失效"}.get(r["governance_status"], ""))
             flag = f" <span style='color:{C['warn']}'>[{' / '.join(f for f in flags if f)}]</span>" if flags else ""
+            flag += source_badge(r.get("source_type"), r.get("confidence"))
             parts.append(
                 f"<div style='margin:4px 0 14px 0;'>"
                 f"<a href='chunk:{r['chunk_id']}' style='font-size:14px; font-weight:700; color:{C['accent']}; "

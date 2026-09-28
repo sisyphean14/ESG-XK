@@ -12,6 +12,9 @@ def main(argv: list[str] | None = None) -> int:
         if i + 1 < len(argv):
             os.environ["ESGXK_PROFILE_DIR"] = argv[i + 1]
             del argv[i:i + 2]
+    if "--parse-helper" in argv:
+        from esgxk.processing.parse_helper import helper_main
+        return helper_main(argv)
     if "--worker" in argv:
         from esgxk.processing.worker import worker_main
         return worker_main(argv)

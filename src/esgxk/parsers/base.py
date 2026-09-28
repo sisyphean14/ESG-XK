@@ -45,6 +45,7 @@ class SourceUnit:
     heading_path: str | None = None
     heading_level: int | None = None
     needs_ocr: bool = False
+    image: dict[str, Any] | None = None   # Office 内嵌图片出现位置详情（unit_type='office_image'）
 
 
 @dataclass
@@ -52,6 +53,20 @@ class ParseResult:
     units: list[SourceUnit] = field(default_factory=list)
     page_count: int | None = None
     warnings: list[str] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------- 进度钩子（供 Parse Helper 上报“有效进展”）
+_PROGRESS: dict[str, Any] = {"fn": None}
+
+
+def set_progress_hook(fn) -> None:
+    _PROGRESS["fn"] = fn
+
+
+def report_progress(label: str, current: int, total: int | None = None) -> None:
+    fn = _PROGRESS["fn"]
+    if fn is not None:
+        fn(label, current, total)
 
 
 def locator_json(loc: dict[str, Any]) -> str:
@@ -96,6 +111,12 @@ def locator_text(loc: dict[str, Any] | str | None) -> str:
         parts.append(f"第{ls}行" if not le or le == ls else f"第{ls}-{le}行")
     if loc.get("frame") is not None:
         parts.append(f"第{loc['frame'] + 1}帧")
+    if loc.get("anchor"):
+        parts.append(f"锚点 {loc['anchor']}")
+    if loc.get("image") is not None:
+        if loc.get("paragraph") is not None and parts and parts[-1].startswith("第") and parts[-1].endswith("段"):
+            parts[-1] = parts[-1] + "附近"
+        parts.append(f"内嵌图片 {loc['image']}")
     if loc.get("part") == "notes":
         parts.append("备注")
     if kind == "image":

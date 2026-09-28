@@ -171,6 +171,8 @@ class AppContext:
         return bool(self.runs and (self.runs.active_run() or self.runs.worker_alive()))
 
     def _close_db_for_restore(self) -> None:
+        if self.runs:
+            self.runs.close()          # 停止并等待 Watchdog 线程释放其数据库连接
         if self.db:
             self.db.checkpoint()
             self.db.close()
@@ -253,6 +255,8 @@ class AppContext:
         if self.runs and self.runs.worker_alive():
             # 正常路径应先安全停止；此处为兜底
             self.runs.emergency_stop()
+        if self.runs:
+            self.runs.close()
         if self.resources:
             self.resources.release_all()
         report.update(self.shutdown_check())

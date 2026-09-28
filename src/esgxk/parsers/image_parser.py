@@ -6,7 +6,7 @@ import io
 from PIL import Image, UnidentifiedImageError
 
 from esgxk.core.errors import ErrorCode, EsgError
-from esgxk.parsers.base import ParseResult, SourceUnit
+from esgxk.parsers.base import ParseResult, SourceUnit, report_progress
 
 MAX_FRAMES = 200
 
@@ -21,6 +21,7 @@ def parse_image(data: bytes) -> ParseResult:
         raise EsgError(ErrorCode.PARSE_CORRUPTED, f"图片无法解码：{exc}") from exc
     result = ParseResult(page_count=min(frames, MAX_FRAMES))
     for f in range(min(frames, MAX_FRAMES)):
+        report_progress("解析图片", f + 1, frames)
         loc = {"type": "image", "ocr": True}
         if frames > 1:
             loc["frame"] = f

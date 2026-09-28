@@ -36,6 +36,7 @@ class SettingsPage(PageBase):
         self.tabs.addTab(self._tab_assets(), "AI资产中心")
         self.tabs.addTab(self._tab_resources(), "资源配置")
         self.tabs.addTab(self._tab_retrieval(), "检索与问答")
+        self.tabs.addTab(self._tab_reliability(), "可靠性与Office OCR")
         self.tabs.addTab(self._tab_about(), "关于")
         card = Card()
         card.lay.addWidget(self.tabs)
@@ -324,6 +325,51 @@ class SettingsPage(PageBase):
         audit("修改检索与问答设置", f"allow_draft={self.allow_draft.isChecked()}")
         info(self, "已保存", "检索与问答设置已保存")
 
+    # ------------------------------------------------------------------ 可靠性
+    REL_FIELDS = [
+        ("timeout.parse_no_progress", "解析无进展超时（秒）", 10, 3600),
+        ("timeout.file_op", "文件操作无进展超时（秒）", 10, 3600),
+        ("timeout.ocr_unit", "单页 / 单张图片 OCR 无进展超时（秒）", 10, 3600),
+        ("timeout.office_image_ocr", "Office 内嵌图片 OCR 无进展超时（秒）", 10, 3600),
+        ("timeout.embed_batch", "Embedding 单批次无进展超时（秒）", 10, 3600),
+        ("timeout.rerank", "Reranker 无进展超时（秒）", 10, 3600),
+        ("timeout.llm", "LLM 单次调用超时（秒）", 10, 3600),
+        ("timeout.index_commit", "索引提交无进展超时（秒）", 10, 3600),
+        ("retry.max_auto", "自动重试次数（禁止无限重试）", 0, 3),
+        ("watchdog.stall_seconds", "Watchdog：Worker 无有效进展判定卡死（秒）", 30, 7200),
+        ("watchdog.heartbeat_seconds", "Watchdog：心跳超时（秒）", 15, 600),
+        ("watchdog.safe_stop_grace", "安全停止宽限时间，超时升级为受控强制终止（秒）", 30, 3600),
+        ("resource.grace_seconds", "资源不足最长等待（秒），超时记录 RESOURCE_DENIED 并跳过", 0, 3600),
+    ]
+
+    def _tab_reliability(self) -> QWidget:
+        w = QWidget()
+        form = QFormLayout(w)
+        self.rel_spins: dict[str, QSpinBox] = {}
+        for key, lab, lo, hi in self.REL_FIELDS:
+            sp = QSpinBox()
+            sp.setRange(lo, hi)
+            self.rel_spins[key] = sp
+            form.addRow(lab, sp)
+        self.office_ocr = QCheckBox("识别 DOCX / PPTX / XLSX 中的内嵌图片（Office 图片 OCR）")
+        self.rotation_retry = QCheckBox("OCR 结果较差时尝试 90° / 270° / 180° 旋转后重试")
+        form.addRow(self.office_ocr)
+        form.addRow(self.rotation_retry)
+        form.addRow(muted("所有长耗时任务均采用“无进展超时”：只要页 / 图片 / 批次持续推进就允许继续运行；连续无进展则终止该单元，"
+                          "自动重试后仍失败则记录并跳过，处理队列始终向前推进。程序不会自动无限重跑失败项。"))
+        form.addRow(hbox(button("保存", "Primary", self.save_reliability), None))
+        return w
+
+    def save_reliability(self) -> None:
+        conn = self.ctx.conn
+        for key, sp in self.rel_spins.items():
+            app_settings.set_(conn, key, sp.value())
+        app_settings.set_(conn, "office_ocr.enabled", self.office_ocr.isChecked())
+        app_settings.set_(conn, "office_ocr.rotation_retry", self.rotation_retry.isChecked())
+        from esgxk.core.logs import audit
+        audit("修改可靠性设置", ", ".join(f"{k}={sp.value()}" for k, sp in self.rel_spins.items()))
+        info(self, "已保存", "可靠性与 Office OCR 设置已保存（下一次开始 / 继续处理时生效）")
+
     # ------------------------------------------------------------------ 关于
     def _tab_about(self) -> QWidget:
         w = QWidget()
@@ -353,6 +399,10 @@ class SettingsPage(PageBase):
         self.chunk_target.setValue(int(s["chunk.target_chars"]))
         self.chunk_max.setValue(int(s["chunk.max_chars"]))
         self.ocr_thr.setValue(int(float(s["ocr.low_confidence_threshold"]) * 100))
+        for key, sp in self.rel_spins.items():
+            sp.setValue(int(float(s.get(key, 0))))
+        self.office_ocr.setChecked(bool(s.get("office_ocr.enabled", True)))
+        self.rotation_retry.setChecked(bool(s.get("office_ocr.rotation_retry", True)))
         hist = migration_history(ctx.conn)
         mig = "; ".join("v{} {} @ {}".format(h["version"], h["name"], h["applied_at"][:19]) for h in hist)
         self.about.setText(

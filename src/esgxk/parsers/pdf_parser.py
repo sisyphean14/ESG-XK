@@ -5,7 +5,7 @@ import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 
 from esgxk.core.errors import ErrorCode, EsgError
-from esgxk.parsers.base import (ParseResult, SourceUnit, heading_level_of, looks_like_heading,
+from esgxk.parsers.base import (ParseResult, SourceUnit, heading_level_of, looks_like_heading, report_progress,
                                 split_paragraphs)
 
 MIN_TEXT_CHARS = 16
@@ -38,6 +38,7 @@ def parse_pdf(data: bytes) -> ParseResult:
         result.page_count = n
         heading_stack: list[tuple[int, str]] = []
         for pi in range(n):
+            report_progress("解析PDF页面", pi + 1, n)
             page = pdf[pi]
             try:
                 tp = page.get_textpage()

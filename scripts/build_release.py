@@ -17,7 +17,7 @@ from esgxk import APP_VERSION  # noqa: E402
 from esgxk.db.migrations import SCHEMA_VERSION  # noqa: E402
 
 DIST = ROOT / "build" / "dist" / "ESG-XK"
-OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(r"D:\ESG-XK\jiaofu\ESG-XK-1.0.0-portable")
+OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(rf"D:\ESG-XK\jiaofu\ESG-XK-{APP_VERSION}-portable")
 PACKAGES = ["PySide6", "PySide6_Essentials", "PySide6_Addons", "shiboken6", "numpy", "faiss-cpu", "pypdfium2",
             "python-docx", "python-pptx", "openpyxl", "et_xmlfile", "lxml", "pillow", "psutil", "typing_extensions",
             "XlsxWriter", "pyinstaller"]
@@ -82,6 +82,8 @@ def collect_licenses(dest: Path) -> list[dict]:
 def main() -> None:
     if not (DIST / "ESG-XK.exe").exists():
         raise SystemExit(f"未找到构建产物：{DIST}")
+    if "1.0.0" in OUT.name:
+        raise SystemExit("禁止覆盖 V1.0.0 冻结交付目录")
     if OUT.exists():
         shutil.rmtree(OUT)
     shutil.copytree(DIST, OUT)

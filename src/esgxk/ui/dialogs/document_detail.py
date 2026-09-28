@@ -12,6 +12,7 @@ from esgxk.core.fsutil import human_size
 from esgxk.core.langdetect import LANG_NAMES
 from esgxk.core.timeutil import ts_to_iso
 from esgxk.parsers.base import locator_text
+from esgxk.parsers.office_images import SKIP_REASONS
 from esgxk.processing.pipeline import PIPELINES, STAGE_LABELS
 from esgxk.services.documents import META_FIELDS
 from esgxk.ui import theme
@@ -41,6 +42,11 @@ class DocumentDetailDialog(QDialog):
         self.badges = hbox()
         lay.addWidget(self.head)
         lay.addLayout(self.badges)
+        self.office_line = QLabel("")
+        self.office_line.setStyleSheet(f"background:{theme.C['info_soft']}; color:{theme.C['info']}; border-radius:8px; "
+                                       "padding:6px 12px; font-weight:600;")
+        self.office_line.setVisible(False)
+        lay.addWidget(self.office_line)
         self.tabs = QTabWidget()
         lay.addWidget(self.tabs, 1)
         self._build_info_tab()
@@ -48,6 +54,7 @@ class DocumentDetailDialog(QDialog):
                                       "Chunk", "索引", "向量", "变更原因"])
         self.tabs.addTab(self.t_versions, "版本历史")
         self._build_parse_tab()
+        self._build_images_tab()
         self._build_chunk_tab()
         self.t_hist = make_table(["时间", "Run", "版本", "阶段", "结果", "耗时(ms)", "错误码", "说明"], stretch_col=7)
         self.t_events = make_table(["时间", "事件", "详情"], stretch_col=2)
@@ -64,8 +71,9 @@ class DocumentDetailDialog(QDialog):
         for k, v in PIPELINES.items():
             self.pipe.addItem(v["label"], k)
         lay.addLayout(hbox(QLabel("手动重新处理："), self.pipe,
-                           button("重新解析", "", lambda: self.reprocess("PARSE")),
-                           button("重新OCR", "", lambda: self.reprocess("OCR", force_ocr=True)),
+                           button("重新解析正文", "", lambda: self.reprocess("PARSE")),
+                           button("重新OCR扫描页", "", lambda: self.reprocess("OCR", force_ocr=True, scope="pages")),
+                           button("重新OCR内嵌图片", "", lambda: self.reprocess("OCR", force_ocr=True, scope="office_images")),
                            button("重新Chunk", "", lambda: self.reprocess("CHUNK")),
                            button("重新索引", "", lambda: self.reprocess("INDEX", only=["INDEX"])),
                            button("重新Embedding", "", lambda: self.reprocess("EMBED", only=["EMBED"], force_embed=True)),
@@ -151,6 +159,37 @@ class DocumentDetailDialog(QDialog):
         lay.addWidget(split)
         self.tabs.addTab(w, "解析与OCR")
 
+    def _build_images_tab(self) -> None:
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        split = QSplitter(Qt.Vertical)
+        self.t_images = make_table(["序号", "位置", "像素", "格式", "SHA-256", "状态", "过滤原因", "置信度", "缓存复用", "OCR文本"],
+                                   stretch_col=9)
+        self.t_images.itemSelectionChanged.connect(self._show_image)
+        self.image_text = QPlainTextEdit()
+        self.image_text.setReadOnly(True)
+        split.addWidget(self.t_images)
+        split.addWidget(self.image_text)
+        split.setSizes([360, 200])
+        lay.addWidget(split)
+        self.tabs.addTab(w, "内嵌图片")
+
+    def _show_image(self) -> None:
+        im = getattr(self, "_images", {}).get(current_key(self.t_images))
+        if not im:
+            return
+        bbox = ""
+        if im["bbox_w"]:
+            bbox = f"\n位置/尺寸(EMU)：x={im['bbox_x']} y={im['bbox_y']} w={im['bbox_w']} h={im['bbox_h']}"
+        self.image_text.setPlainText(
+            f"[内嵌图片 {im['image_index']} · {locator_text(im['container_locator'])}]\n"
+            f"Office 类型：{im['office_type']}　关系ID：{im['relationship_id']}　Shape：{im['shape_id']} {im['shape_name'] or ''}\n"
+            f"部件：{im['part_name']}　SHA-256：{im['image_hash']}\n"
+            f"OCR 引擎：{im['ocr_engine'] or '-'}　语言：{im['ocr_language'] or '-'}　置信度：{im['ocr_confidence']}"
+            f"　缓存复用：{'是' if im['cache_hit'] else '否'}　Run：{im['processed_run_id'] or '-'}{bbox}\n"
+            f"前文：{im['context_before'] or '-'}\n后文：{im['context_after'] or '-'}\n\n"
+            f"{im['ocr_text'] or ('（已过滤：' + SKIP_REASONS.get(im['skip_reason'] or '', im['skip_reason'] or '') + '）' if im['skip_reason'] else '')}")
+
     def _build_chunk_tab(self) -> None:
         w = QWidget()
         lay = QVBoxLayout(w)
@@ -221,6 +260,24 @@ class DocumentDetailDialog(QDialog):
                                         c["text"][:120].replace("\n", " ")] for c in chunks], [c["chunk_id"] for c in chunks])
             autosize(self.t_chunks, 280)
             self._chunks = {c["chunk_id"]: c for c in chunks}
+        if v:
+            imgs = self.ctx.docs.office_images(v["version_id"])
+            self._images = {i["office_image_id"]: i for i in imgs}
+            fill_table(self.t_images, [[i["image_index"], locator_text(i["container_locator"]),
+                                        f"{i['width'] or '?'}×{i['height'] or '?'}", (i["mime_type"] or "").replace("image/", ""),
+                                        (i["image_hash"] or "")[:12], i["ocr_status"],
+                                        SKIP_REASONS.get(i["skip_reason"] or "", i["skip_reason"] or ""),
+                                        f"{i['ocr_confidence']:.3f}" if i["ocr_confidence"] is not None else "",
+                                        "是" if i["cache_hit"] else "", (i["ocr_text"] or "").replace("\n", " ")[:80]]
+                                       for i in imgs], [i["office_image_id"] for i in imgs], status_cols=[5])
+            autosize(self.t_images, 260)
+            if v.get("ext") in (".docx", ".pptx", ".xlsx"):
+                sm = self.ctx.docs.office_summary(v["version_id"])
+                self.office_line.setText(
+                    f"正文提取：{sm['body_extract']}　·　内嵌图片：{sm['images']} 张　·　OCR成功：{sm['ocr_ok']}　·　"
+                    f"低置信度：{sm['low_confidence']}　·　失败：{sm['failed']}　·　过滤（非知识内容）：{sm['skipped']}"
+                    f"　·　缓存复用：{sm['cache_hits']}" + (f"　·　待处理：{sm['pending']}" if sm["pending"] else ""))
+                self.office_line.setVisible(True)
         ocrs = self.ctx.docs.ocr_results(self.document_id)
         self._ocrs = {o["ocr_id"]: o for o in ocrs}
         fill_table(self.t_ocr, [[o["created_at"][:19], f"v{o['version_no']}", o["page"] or "", o["engine"],
@@ -284,16 +341,19 @@ class DocumentDetailDialog(QDialog):
             show_error(self, exc, "保存失败")
 
     def reprocess(self, stage: str, *, only: list[str] | None = None, force_ocr: bool = False,
-                  force_embed: bool = False) -> None:
+                  force_embed: bool = False, scope: str = "all") -> None:
         pipe = self.pipe.currentData()
-        label = {"PARSE": "重新解析", "OCR": "重新OCR", "CHUNK": "重新Chunk", "INDEX": "重新索引",
-                 "EMBED": "重新Embedding"}[stage]
+        label = {"PARSE": "重新解析正文", "OCR": {"pages": "重新OCR扫描页", "office_images": "重新OCR内嵌图片"}.get(scope, "重新OCR"),
+                 "CHUNK": "重新Chunk", "INDEX": "重新索引", "EMBED": "重新Embedding"}[stage]
         if not confirm(self, label, f"对《{self.doc['title']}》执行“{label}”？\n\n将创建新的处理任务并立即开始"
                                     f"（Pipeline：{PIPELINES[pipe]['label']}）。"):
             return
         opts = {}
         if force_ocr:
             opts["force_ocr"] = True
+            opts["ocr_scope"] = scope
+            if scope == "office_images":
+                opts["ocr_no_cache"] = True   # 用户明确要求重新识别：不使用 OCR 缓存
         if force_embed:
             opts["force_embed"] = True
         rid = self.main.start_run([self.document_id], pipe, start_stage=None if only else stage, only=only,

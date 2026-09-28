@@ -38,7 +38,8 @@ def q1(c, sql, *a):
 
 def test_run_completed_with_failures_isolated(pctx):
     r = pctx.runs.get_run(pctx._rid)
-    assert r["status"] == "COMPLETED"
+    # V1.1.0：队列全部走完但存在失败项 → COMPLETED_WITH_ERRORS（V1.0.0 为 COMPLETED）
+    assert r["status"] == "COMPLETED_WITH_ERRORS"
     assert r["failed"] == 4                      # 3 个损坏文件 + 空文件，均不影响其他文档
     assert r["succeeded"] == r["total"] - 4
     errs = {x[0] for x in pctx.conn.execute("SELECT last_error_code FROM document_versions WHERE process_status='FAILED'")}

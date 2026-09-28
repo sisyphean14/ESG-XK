@@ -80,6 +80,11 @@ def main() -> int:
             return 0
         rid = req.get("id")
         t0 = time.time()
+        if req.get("fault") == "hang":          # 仅故障注入测试：模拟 OCR 永久无响应
+            while True:
+                time.sleep(3600)
+        if req.get("fault") == "crash":         # 仅故障注入测试：模拟 OCR 子进程崩溃
+            os._exit(3)
         try:
             with open(req["image_path"], "rb") as fh:
                 buf = np.frombuffer(fh.read(), dtype=np.uint8)

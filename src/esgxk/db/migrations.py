@@ -17,7 +17,7 @@ from esgxk import APP_VERSION
 from esgxk.core.errors import ErrorCode, EsgError
 from esgxk.core.logs import elog
 from esgxk.core.timeutil import now_iso, stamp
-from esgxk.db import schema_v1
+from esgxk.db import schema_v1, schema_v2
 from esgxk.db.database import connect, integrity_check
 
 
@@ -27,6 +27,7 @@ class Migration:
     name: str
     statements: list[str] = field(default_factory=list)
     func: Callable[[sqlite3.Connection], None] | None = None
+    fk_off: bool = False   # 需要重建被外键引用的表（SQLite 官方 12 步流程）
 
     @property
     def checksum(self) -> str:
@@ -39,6 +40,7 @@ class Migration:
 
 REGISTRY: list[Migration] = [
     Migration(1, "initial_schema_v1", schema_v1.STATEMENTS),
+    Migration(2, "office_image_ocr_and_reliability_v2", schema_v2.STATEMENTS, fk_off=True),
 ]
 
 SCHEMA_VERSION = max(m.version for m in REGISTRY)
@@ -87,12 +89,18 @@ def migrate(db_path: Path, registry: list[Migration] | None = None, snapshot_dir
             elog("migration", logging.INFO, f"迁移前快照：{snap}")
         for m in pending:
             elog("migration", logging.INFO, f"开始迁移 v{m.version} {m.name}")
+            if m.fk_off:
+                conn.execute("PRAGMA foreign_keys=OFF")   # 只能在事务外切换
             conn.execute("BEGIN IMMEDIATE")
             try:
                 for stmt in m.statements:
                     conn.execute(stmt)
                 if m.func:
                     m.func(conn)
+                if m.fk_off:
+                    bad = conn.execute("PRAGMA foreign_key_check").fetchall()
+                    if bad:
+                        raise EsgError(ErrorCode.DB_FOREIGN_KEY_FAILED, f"迁移后外键检查失败：{[tuple(b) for b in bad[:5]]}")
                 conn.execute(
                     "INSERT INTO schema_migrations(version,name,applied_at,app_version,checksum) VALUES(?,?,?,?,?)",
                     (m.version, m.name, now_iso(), APP_VERSION, m.checksum),
@@ -107,6 +115,9 @@ def migrate(db_path: Path, registry: list[Migration] | None = None, snapshot_dir
                 elog("migration", logging.ERROR, f"迁移 v{m.version} 失败，已回滚：{exc}",
                      error_code=ErrorCode.DB_MIGRATION_FAILED, exc=exc)
                 raise EsgError(ErrorCode.DB_MIGRATION_FAILED, f"v{m.version} {m.name}: {exc}") from exc
+            finally:
+                if m.fk_off:
+                    conn.execute("PRAGMA foreign_keys=ON")
             report["applied"].append(m.version)
             elog("migration", logging.INFO, f"迁移 v{m.version} 完成")
         ok, rows = integrity_check(conn)

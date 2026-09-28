@@ -1,4 +1,4 @@
-# ESG-XK 管理员说明
+# ESG-XK 管理员说明（V1.1.0）
 
 ## 1. 部署
 便携版，无需安装：复制 `ESG-XK-1.0.0-portable` 目录到目标位置即可。首次运行选择数据目录（默认便携目录同级 `ESG-XK-Data`）。
@@ -53,3 +53,23 @@ VECTOR_* / RAG_* / ASSET_* / RESOURCE_* / DB_* / BACKUP_* / RESTORE_* / PROFILE_
 ## 10. 命令行
 `ESG-XK.exe --version`：显示版本与 Schema。`--worker ...` 为内部参数（由程序自身启动 Worker 使用，请勿手动调用）。
 `--acceptance <report.json>`：交付验收模式（自动驱动界面并生成验收报告，仅用于测试数据目录）。
+
+
+## 11. V1.1.0 升级
+- 直接用 V1.1.0 便携版打开原数据目录：启动时自动执行 Schema 1 → 2 迁移（迁移前在 database\ 下生成快照
+  pre-migration-v1-*.db；迁移在单事务中执行，失败自动回滚并保持 V1 数据库不变）。原有文档、索引、OCR、知识、Run、
+  问答与备份全部保留；V1.0.0 的备份文件可以在 V1.1.0 中恢复（在临时副本上自动迁移）。
+- V1.0.0 便携目录无需删除，可保留作为回退版本；但 Schema 2 数据库不能再被 V1.0.0 打开（会提示“数据库版本高于本程序”）。
+
+## 12. 进程与超时机制（V1.1.0）
+| 进程 | 作用 | 超时 / 回收 |
+|---|---|---|
+| ESG-XK.exe --worker | 处理 Worker | GUI 侧独立 Watchdog：心跳超时（默认 90 秒）或连续无有效进展（默认 900 秒）→ 终止进程树 → 当前文档计入卡死次数 → 自动从 Checkpoint 续跑；同一文档卡死超过自动重试上限后标记 TIMEOUT/STALLED 并跳过 |
+| ESG-XK.exe --parse-helper | 解析与 Office 图片提取子进程 | 解析无进展超时（默认 120 秒）→ 终止并重启，重试 1 次 |
+| PP-OCR Helper | OCR | 单张图片 / 单页无进展超时（默认 180 秒）→ 终止并重启，重试 1 次 |
+| llama-server | Embedding / Reranker / LLM | 单批次 / 单次调用超时（180 / 180 / 300 秒） |
+安全停止超过宽限时间（默认 300 秒）无响应时自动升级为受控强制终止（保留 Checkpoint）。所有参数见 设置 → 可靠性与Office OCR。
+
+## 13. OCR 缓存
+表 ocr_cache 以 图片 SHA-256 + 引擎键（引擎、模型文件指纹、语言、识别策略版本）缓存 Office 图片 OCR 结果；
+更换 PP-OCR 模型或升级识别策略后缓存自动失效。Office 图片出现位置记录在 office_images 表；两者均随数据库备份与恢复。

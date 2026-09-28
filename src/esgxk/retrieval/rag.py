@@ -45,6 +45,13 @@ class Citation:
     excerpt: str
     score: float | None = None
     cited: bool = False
+    source_type: str = "BODY"
+    low_confidence: bool = False
+
+    @property
+    def source_label(self) -> str:
+        from esgxk.processing.pipeline import SOURCE_TYPE_LABELS
+        return SOURCE_TYPE_LABELS.get(self.source_type or "BODY", self.source_type or "")
 
     @property
     def locator_label(self) -> str:
@@ -55,7 +62,7 @@ class Citation:
         return cls(ordinal=ordinal, document_id=h.document_id, version_id=h.version_id, chunk_id=h.chunk_id,
                    source_unit_id=h.source_unit_id, document_title=h.title, version_no=h.version_no,
                    locator=h.locator, page=h.page, sheet=h.sheet, slide=h.slide, excerpt=h.text,
-                   score=h.score)
+                   score=h.score, source_type=h.source_type, low_confidence=h.low_confidence)
 
 
 @dataclass
@@ -78,7 +85,8 @@ SYSTEM_PROMPT = (
     "1. 只能依据用户提供的【资料】作答，禁止使用资料以外的知识，禁止编造数字、日期、名称。\n"
     "2. 每个关键事实句末必须标注来源编号，例如 [1] 或 [2][3]，编号必须来自资料列表。\n"
     f"3. 如果资料不足以回答问题，只输出：{NO_EVIDENCE}\n"
-    "4. 回答简洁、准确、专业；资料可能是中文、英文或印尼语，需要时可翻译引用内容。"
+    "4. 回答简洁、准确、专业；资料可能是中文、英文或印尼语，需要时可翻译引用内容。\n"
+    "5. 标注为“OCR低置信度”的资料可能存在识别错误，不得作为唯一的关键数字依据；如与其他资料冲突，以非低置信度资料为准。"
 )
 
 
@@ -88,7 +96,10 @@ def _build_context(hits: list[Hit]) -> tuple[str, list[Hit]]:
         excerpt = h.text.strip()
         if len(excerpt) > 1400:
             excerpt = excerpt[:1400] + "…"
-        block = f"[{len(used) + 1}] 《{h.title}》 v{h.version_no} {locator_text(h.locator)}\n{excerpt}"
+        src = ""
+        if h.source_type in ("OFFICE_IMAGE_OCR", "SCANNED_OCR", "IMAGE_OCR"):
+            src = f"（来源：{h.source_label}{'，OCR低置信度，仅供参考' if h.low_confidence else ''}）"
+        block = f"[{len(used) + 1}] 《{h.title}》 v{h.version_no} {locator_text(h.locator)}{src}\n{excerpt}"
         if total + len(block) > MAX_CONTEXT_CHARS and used:
             break
         parts.append(block)
@@ -197,9 +208,11 @@ class RagService:
                      ans.duration_ms, now_iso())).lastrowid
                 self.conn.executemany(
                     "INSERT INTO qa_citations(qa_id,ordinal,cited,document_id,version_id,chunk_id,source_unit_id,"
-                    "document_title,version_no,locator,page,sheet,slide,excerpt,score) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "document_title,version_no,locator,page,sheet,slide,excerpt,score,source_type,low_confidence)"
+                    " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     [(qa_id, c.ordinal, 1 if c.cited else 0, c.document_id, c.version_id, c.chunk_id, c.source_unit_id,
-                      c.document_title, c.version_no, c.locator, c.page, c.sheet, c.slide, c.excerpt[:4000], c.score)
+                      c.document_title, c.version_no, c.locator, c.page, c.sheet, c.slide, c.excerpt[:4000], c.score,
+                      c.source_type, 1 if c.low_confidence else 0)
                      for c in ans.citations])
             ans.qa_id = int(qa_id)
         except sqlite3.Error as exc:
@@ -218,7 +231,8 @@ class RagService:
         cits = [Citation(ordinal=r["ordinal"], document_id=r["document_id"], version_id=r["version_id"],
                          chunk_id=r["chunk_id"], source_unit_id=r["source_unit_id"], document_title=r["document_title"],
                          version_no=r["version_no"], locator=r["locator"], page=r["page"], sheet=r["sheet"],
-                         slide=r["slide"], excerpt=r["excerpt"], score=r["score"], cited=bool(r["cited"]))
+                         slide=r["slide"], excerpt=r["excerpt"], score=r["score"], cited=bool(r["cited"]),
+                         source_type=r["source_type"] or "BODY", low_confidence=bool(r["low_confidence"]))
                 for r in self.conn.execute("SELECT * FROM qa_citations WHERE qa_id=? ORDER BY ordinal", (qa_id,))]
         return RagAnswer(question=s["question"], status=s["status"], answer=s["answer"] or "", citations=cits,
                          error_code=s["error_code"], mode=s["retrieval_mode"] or "", model=s["model"] or "",

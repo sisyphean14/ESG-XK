@@ -37,6 +37,22 @@ class OcrOutput:
         return self.confidence is not None and self.confidence < LOW_CONFIDENCE_THRESHOLD
 
 
+OCR_STRATEGY = "s2-rotate"   # 识别策略版本（变化后 OCR 缓存失效，允许重新 OCR）
+
+
+def engine_key(model_root: str) -> str:
+    """OCR 缓存键：引擎 + 模型文件指纹 + 语言 + 策略。模型或策略变化时自动不命中缓存。"""
+    import hashlib
+    h = hashlib.sha256()
+    root = Path(model_root or "")
+    if root.is_dir():
+        for p in sorted(root.rglob("*")):
+            if p.is_file():
+                st = p.stat()
+                h.update(f"{p.relative_to(root)}|{st.st_size}|{int(st.st_mtime)}".encode("utf-8"))
+    return f"{ENGINE_NAME}|{h.hexdigest()[:16]}|{OCR_LANGUAGES}|{OCR_STRATEGY}"
+
+
 def worker_script() -> Path:
     return paths.resource_dir() / "ocr" / "esgxk_ocr_worker.py"
 
@@ -149,7 +165,8 @@ class OcrEngine:
         raise EsgError(ErrorCode.OCR_TIMEOUT, f"{int(timeout)} 秒内未收到响应")
 
     def recognize_png(self, png: bytes, *, should_abort: Callable[[], bool] | None = None,
-                      timeout: float = 300.0) -> OcrOutput:
+                      timeout: float = 300.0, fault: str | None = None) -> OcrOutput:
+        """识别一张图片。timeout 为单张图片的无进展超时（OCR Helper 对一张图片只返回一次结果）。"""
         if not self.running:
             raise EsgError(ErrorCode.OCR_ENGINE_UNAVAILABLE, "OCR helper 未运行")
         self._next_id += 1
@@ -157,7 +174,10 @@ class OcrEngine:
         img = self.temp_dir / f"ocr-{os.getpid()}-{uuid.uuid4().hex[:8]}.png"
         img.write_bytes(png)
         try:
-            line = json.dumps({"id": rid, "image_path": str(img)}, ensure_ascii=False) + "\n"
+            req = {"id": rid, "image_path": str(img)}
+            if fault:
+                req["fault"] = fault
+            line = json.dumps(req, ensure_ascii=False) + "\n"
             try:
                 self.proc.stdin.write(line.encode("utf-8"))
                 self.proc.stdin.flush()
@@ -165,7 +185,7 @@ class OcrEngine:
                 raise EsgError(ErrorCode.OCR_FAILED, f"无法发送请求：{exc}") from exc
             msg = self._wait_message(timeout, should_abort, lambda m: m.get("id") == rid or "event" in m)
             if msg.get("event"):
-                raise EsgError(ErrorCode.OCR_FAILED, msg.get("error", "helper 异常"))
+                raise EsgError(ErrorCode.OCR_HELPER_CRASHED, msg.get("error", "helper 异常"))
             if msg.get("status") != "OK":
                 raise EsgError(ErrorCode.OCR_FAILED, msg.get("error", "识别失败"))
             return OcrOutput(text=msg.get("text", ""), confidence=msg.get("confidence"),

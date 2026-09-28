@@ -62,7 +62,7 @@ def build_items(chunks: list[dict]) -> list[dict]:
     groups: dict[tuple, list[dict]] = {}
     order: list[tuple] = []
     for c in chunks:
-        if c.get("chunk_type") in ("TABLE", "NOTES"):
+        if c.get("chunk_type") in ("TABLE", "NOTES", "IMAGE_OCR"):
             key = ("single", c["chunk_id"])
         else:
             key = ("section", c.get("heading") or "", c.get("slide"), c.get("sheet"))
@@ -75,7 +75,7 @@ def build_items(chunks: list[dict]) -> list[dict]:
         members = groups[key]
         head = members[0]
         text = "\n".join(m["text"] for m in members)
-        kind = "TABLE" if head.get("chunk_type") == "TABLE" else ("NOTES" if head.get("chunk_type") == "NOTES" else "SECTION")
+        kind = {"TABLE": "TABLE", "NOTES": "NOTES", "IMAGE_OCR": "IMAGE"}.get(head.get("chunk_type"), "SECTION")
         title = head.get("heading") or first_sentence(head["text"], 60)
         body = text
         if head.get("heading") and body.startswith(head["heading"]):
