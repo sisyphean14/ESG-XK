@@ -241,7 +241,7 @@ class GuiAcceptance(QObject):
                                ensure_ascii=False))
         # V1.1.0 Office 内嵌图片 OCR
         oi = {r[0]: (r[1], r[2]) for r in ctx.conn.execute(
-            "SELECT office_type, SUM(ocr_status IN ('DONE','LOW_CONFIDENCE')), COUNT(*) FROM office_images o "
+            "SELECT o.office_type, SUM(o.ocr_status IN ('DONE','LOW_CONFIDENCE')), COUNT(*) FROM office_images o "
             "JOIN document_versions v ON v.version_id=o.version_id WHERE v.is_current=1 GROUP BY office_type")}
         self.record("Office 内嵌图片 OCR（DOCX / PPTX / XLSX）",
                     oi.get("DOCX", (0, 0))[0] >= 14 and oi.get("PPTX", (0, 0))[0] >= 7 and oi.get("XLSX", (0, 0))[0] >= 3,

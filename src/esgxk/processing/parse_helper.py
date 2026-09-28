@@ -45,8 +45,9 @@ def helper_main(argv: list[str]) -> int:
     from esgxk.parsers.registry import load_verified_bytes, parse_bytes
 
     send({"event": "ready", "pid": os.getpid()})
-    for raw in sys.stdin:
-        raw = raw.strip()
+    # 以字节读取并显式按 UTF-8 解码：冻结 EXE 的 sys.stdin 默认使用系统 ANSI 代码页（如 cp936）
+    for raw_b in sys.stdin.buffer:
+        raw = raw_b.decode("utf-8", "replace").strip()
         if not raw:
             continue
         try:
@@ -172,7 +173,7 @@ class ParseHelper:
         req = {"id": rid, "path": path, "sha256": sha256, "ext": ext, "out": str(out), "name": name,
                "extract_images": extract_images}
         try:
-            self.proc.stdin.write((json.dumps(req, ensure_ascii=False) + "\n").encode("utf-8"))
+            self.proc.stdin.write((json.dumps(req, ensure_ascii=True) + "\n").encode("ascii"))
             self.proc.stdin.flush()
         except (OSError, ValueError) as exc:
             self.stop()
