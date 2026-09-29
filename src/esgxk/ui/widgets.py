@@ -4,15 +4,16 @@ from __future__ import annotations
 import traceback
 from typing import Any, Callable, Iterable
 
-from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
-from PySide6.QtGui import QColor, QGuiApplication
-from PySide6.QtWidgets import (QAbstractItemView, QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QHeaderView,
+from PySide6.QtCore import QObject, QRectF, QRunnable, Qt, QThreadPool, Signal
+from PySide6.QtGui import QColor, QGuiApplication, QPainter
+from PySide6.QtWidgets import (QAbstractItemView, QDialog, QDialogButtonBox, QFrame, QGraphicsDropShadowEffect,
+                               QHBoxLayout, QHeaderView,
                                QLabel, QMessageBox, QPlainTextEdit, QPushButton, QSizePolicy, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
 from esgxk.core.errors import EsgError, describe
 from esgxk.processing.pipeline import RUN_STATUS_LABELS, STATUS_LABELS
-from esgxk.ui.theme import C, status_colors
+from esgxk.ui.theme import C, aurora_pixmap, status_colors
 
 GOV_LABELS = {"DRAFT": "草稿", "PENDING_REVIEW": "待审核", "APPROVED": "已批准", "EXPIRED": "已失效"}
 IMPORT_LABELS = {"WAITING": "等待", "PROCESSING": "处理中", "DONE": "完成", "FAILED": "失败", "SKIPPED": "跳过",
@@ -28,6 +29,36 @@ def status_label(status: str | None) -> str:
         return ""
     return (RUN_STATUS_LABELS.get(status) or STATUS_LABELS.get(status) or GOV_LABELS.get(status)
             or IMPORT_LABELS.get(status) or QA_LABELS.get(status) or status)
+
+
+class AuroraBackground(QWidget):
+    """极光玻璃背景层：按窗口尺寸缓存绘制结果，半透明的导航 / 卡片叠加其上形成通透层次。"""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName("AppBg")
+        self._cache = None
+        self._key = None
+
+    def paintEvent(self, event):  # noqa: N802
+        dpr = self.devicePixelRatioF()
+        key = (self.width(), self.height(), dpr)
+        if key != self._key:
+            self._cache = aurora_pixmap(self.width(), self.height(), dpr)
+            self._key = key
+        r = event.rect()
+        p = QPainter(self)
+        p.drawPixmap(QRectF(r), self._cache, QRectF(r.x() * dpr, r.y() * dpr, r.width() * dpr, r.height() * dpr))
+        p.end()
+
+
+def soft_shadow(widget: QWidget, *, blur: int = 26, dy: int = 6, alpha: int = 34) -> None:
+    """玻璃卡片的柔和投影（蓝色调），增强层次感。"""
+    eff = QGraphicsDropShadowEffect(widget)
+    eff.setBlurRadius(blur)
+    eff.setOffset(0, dy)
+    eff.setColor(QColor(40, 90, 200, alpha))
+    widget.setGraphicsEffect(eff)
 
 
 class Card(QFrame):
@@ -51,6 +82,7 @@ class StatCard(Card):
         self.lay.addWidget(self.value)
         self.lay.addWidget(self.label)
         self.setMinimumWidth(130)
+        soft_shadow(self, blur=22, dy=5, alpha=30)
 
     def set(self, value: Any) -> None:
         self.value.setText(f"{value:,}" if isinstance(value, int) else str(value))

@@ -42,9 +42,8 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(theme.app_icon())
         self.resize(1440, 900)
         self.setMinimumSize(1100, 700)
-        central = QWidget()
-        central.setObjectName("AppBg")
-        central.setAttribute(Qt.WA_StyledBackground, True)
+        from esgxk.ui.widgets import AuroraBackground
+        central = AuroraBackground()
         self.setCentralWidget(central)
         outer = QHBoxLayout(central)
         outer.setContentsMargins(0, 0, 0, 0)

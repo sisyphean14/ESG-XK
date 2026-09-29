@@ -27,7 +27,7 @@ def source_badge(source_type: str | None, confidence: float | None = None) -> st
     from esgxk.processing.pipeline import SOURCE_TYPE_LABELS
     st = source_type or "BODY"
     color = C["info"] if st in ("OFFICE_IMAGE_OCR", "SCANNED_OCR", "IMAGE_OCR") else C["muted"]
-    html_ = (f" <span style='color:{color}; background:{C['info_soft'] if color == C['info'] else '#EEF1F4'};"
+    html_ = (f" <span style='color:{color}; background:{'#E1EAFF' if color == C['info'] else '#EDF1F6'};"
              f" font-weight:600;'>&nbsp;命中来源：{SOURCE_TYPE_LABELS.get(st, st)}&nbsp;</span>")
     if confidence is not None and confidence < 0.8:
         html_ += f" <span style='color:{C['warn']}; font-weight:600;'>（OCR低置信度 {confidence:.2f}，仅供参考）</span>"

@@ -27,8 +27,8 @@ class DropZone(QFrame):
         lay.addWidget(lab)
 
     def _style(self, active: bool) -> None:
-        self.setStyleSheet(f"QFrame {{ border: 2px dashed {C['accent'] if active else '#C5CED8'}; border-radius: 10px; "
-                           f"background: {C['accent_soft'] if active else '#FAFBFC'}; }}")
+        self.setStyleSheet(f"QFrame {{ border: 2px dashed {C['accent'] if active else 'rgba(61,123,255,0.30)'}; border-radius: 10px; "
+                           f"background: {C['accent_soft'] if active else 'rgba(255,255,255,0.45)'}; }}")
 
     def dragEnterEvent(self, e):  # noqa: N802
         if e.mimeData().hasUrls():
