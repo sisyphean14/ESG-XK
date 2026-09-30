@@ -89,7 +89,7 @@ def main() -> None:
     # 便携模式的用户数据（profile / 数据目录 / 下载的模型）绝不进入交付物
     shutil.copytree(DIST, OUT, ignore=shutil.ignore_patterns("portable.flag", "profile", "ESG-XK-Data", "AI-Models"))
     docs = ROOT / "release_docs"
-    for name in ("README_CN.md", "USER_GUIDE_CN.md", "ADMIN_GUIDE_CN.md", "RELEASE_NOTES.md"):
+    for name in ("先看这里-使用说明.txt", "README_CN.md", "USER_GUIDE_CN.md", "ADMIN_GUIDE_CN.md", "RELEASE_NOTES.md"):
         if (docs / name).exists():
             shutil.copy2(docs / name, OUT / name)
     (OUT / "config").mkdir()
