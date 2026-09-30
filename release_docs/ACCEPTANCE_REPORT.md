@@ -11,10 +11,10 @@
 | 测试语料 | D:\ESG-XK\ceshi |
 | 交付路径 | D:\ESG-XK\jiaofu\ESG-XK-1.1.0-portable |
 | EXE | D:\ESG-XK\jiaofu\ESG-XK-1.1.0-portable\ESG-XK.exe |
-| EXE SHA-256 | e83bbc6f93e7c961babb1fdf6ffef1ad911225bb43f06333b670b2274b2331e6 |
+| EXE SHA-256 | 3ed6a3cdeeffd98ae568fd43563ece4a89071c447f125da39fac2960c23f61e7 |
 | V1.0.0 冻结交付 | D:\ESG-XK\jiaofu\ESG-XK-1.0.0-portable：388 / 388 文件与其 SHA256SUMS 一致，无新增文件（未被修改） |
-| 自动化测试 | 122 / 122 PASS，0 FAIL，0 SKIP（V1.0.0 回归 65 项 + V1.1.0 新增 57 项，1877 s） |
-| EXE 真实验收 | 33 / 33 PASS（冻结 EXE 内驱动真实界面，449 s，退出码 0，残留子进程 0）；普通启动 / 关闭 PASS |
+| 自动化测试 | 122 / 122 PASS，0 FAIL，0 SKIP（V1.0.0 回归 65 项 + V1.1.0 新增 57 项，1750 s） |
+| EXE 真实验收 | 33 / 33 PASS（冻结 EXE 内驱动真实界面，469 s，退出码 0，残留子进程 0）；普通启动 / 关闭 PASS |
 | 真实下载安装 | 在空目录中真实下载并安装 OCR 模型、完整 PP-OCR 运行时、llama.cpp CPU、Qwen3-Embedding，并用其完成真实 OCR 与 Embedding |
 | 缺陷 | P0 0 · P1 0 · P2 0 · P3 见“尚存限制” |
 

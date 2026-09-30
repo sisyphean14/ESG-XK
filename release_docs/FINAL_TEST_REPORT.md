@@ -8,7 +8,7 @@ test_rotation_retry_selection_unit（单元测试，仅验证旋转重试的选�
 
 ## 1. 自动化测试（最终回归，基于最终代码）
 命令：`pytest -q -s --junitxml=reports/junit_v1.1.0_final.xml`
-结果：**122 个测试，122 PASS，0 FAIL，0 ERROR，0 SKIP**，耗时 1877 s。
+结果：**122 个测试，122 PASS，0 FAIL，0 ERROR，0 SKIP**，耗时 1750 s。
 
 | 模块 | 数量 | 结果 | 说明 |
 |---|---:|---|---|
@@ -101,15 +101,16 @@ Qwen3 Reranker、Qwen3-VL LLM、PP-OCRv6 模型目录、多个 PP-OCR 运行时�
 
 ## 6. EXE 真实验收（最终构建）
 EXE：`D:\ESG-XK\jiaofu\ESG-XK-1.1.0-portable\ESG-XK.exe`
-SHA-256：e83bbc6f93e7c961babb1fdf6ffef1ad911225bb43f06333b670b2274b2331e6
-- `--acceptance`（冻结 EXE 内驱动真实界面）：**33 步 33 PASS / 0 FAIL**，449 s。首次运行由 EXE 自身处理（默认“程序文件夹内”）；
+SHA-256：3ed6a3cdeeffd98ae568fd43563ece4a89071c447f125da39fac2960c23f61e7
+- `--acceptance`（冻结 EXE 内驱动真实界面）：**33 步 33 PASS / 0 FAIL**，469 s。首次运行由 EXE 自身处理（默认“程序文件夹内”）；
   含 DOCX / PPTX / XLSX 内嵌图片 OCR（DOCX 16/21、PPTX 7/8、XLSX 3/4 OCR 成功，其余为按规则过滤的非知识图片）、
   FTS / 向量命中内嵌图片、RAG 引用内嵌图片位置、暂停 / 继续 / 安全停止 / Checkpoint 续跑 / 急停（123 ms）、
   解析卡死与 OCR 卡死超时跳过（COMPLETED_WITH_ERRORS）、备份 / 恢复、文档详情内嵌图片页签、日志、AI资产中心、
   扫描电脑、模型下载中心（硬件推荐 + 真实下载安装 llama.cpp CPU）、数据目录迁移（SHA-256 24/24）。
   退出码 0；退出后残留子进程 0（按 create_time 校验）；last_shutdown：Worker 0 / Helper 0 / 端口 0 / 处理租约释放 / 数据目录租约释放。
-- 普通启动（无参数，便携模式）：3.0 s 出窗「ESG-XK 本地ESG文档知识库 V1.1.0」，读取迁移后的数据目录，空闲无子进程；
+- 普通启动（无参数，便携模式）：2.5 s 出窗「ESG-XK 本地ESG文档知识库 V1.1.0」，读取迁移后的数据目录，空闲无子进程；
   窗口关闭消息后退出码 0，退出核对全部为 0。
+- 界面为最终 Aurora Glass 主题（蓝 → 青 → 绿渐变、通透玻璃层次），上述 EXE 验收与全量回归均在该主题构建上执行。
 
 ## 7. 数据库与源文件
 - 所有完整性校验以新连接执行：PRAGMA integrity_check = ok；foreign_key_check 无错误。
